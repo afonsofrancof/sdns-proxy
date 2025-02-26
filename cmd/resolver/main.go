@@ -5,13 +5,14 @@ import (
 
 	"github.com/afonsofrancof/sdns-perf/internal/protocols/do53"
 	"github.com/afonsofrancof/sdns-perf/internal/protocols/doh"
+	"github.com/afonsofrancof/sdns-perf/internal/protocols/dot"
 	"github.com/alecthomas/kong"
 )
 
 type CommonFlags struct {
 	DomainName string `help:"Domain name to resolve" arg:"" required:""`
 	QueryType  string `help:"Query type" enum:"A,AAAA,MX,TXT,NS,CNAME,SOA,PTR" default:"A"`
-	Server     string `help:"DNS server to use"`
+	Server     string `help:"DNS server to use" required:""`
 	DNSSEC     bool   `help:"Enable DNSSEC validation"`
 }
 
@@ -52,8 +53,7 @@ func (c *DoHCmd) Run() error {
 }
 
 func (c *DoTCmd) Run() error {
-	// TODO: Implement DoT query
-	return nil
+	return dot.Run(c.DomainName, c.QueryType, c.Server, c.DNSSEC)
 }
 
 func (c *DoQCmd) Run() error {
