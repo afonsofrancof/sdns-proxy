@@ -1,7 +1,9 @@
 package dot
 
 import (
+	"bytes"
 	"crypto/tls"
+	"encoding/binary"
 	"fmt"
 	"net"
 	"os"
@@ -50,13 +52,11 @@ func Run(domain, queryType, server string, dnssec bool) error {
 	}
 	defer tlsConn.Close()
 
-	// Before sending the DNS message over TLS, prepend the 2-byte length field
-	lengthPrefixedMessage := make([]byte, len(DNSMessage)+2)
-	lengthPrefixedMessage[0] = byte(len(DNSMessage) >> 8)   // High byte
-	lengthPrefixedMessage[1] = byte(len(DNSMessage) & 0xFF) // Low byte
-	copy(lengthPrefixedMessage[2:], DNSMessage)
+	var lengthPrefixedMessage bytes.Buffer
+	binary.Write(&lengthPrefixedMessage, binary.BigEndian, uint16(len(DNSMessage)))
+	lengthPrefixedMessage.Write(DNSMessage)
 
-	_, err = tlsConn.Write(lengthPrefixedMessage)
+	_, err = tlsConn.Write(lengthPrefixedMessage.Bytes())
 	if err != nil {
 		return fmt.Errorf("failed writing TLS request: %v", err)
 	}
@@ -68,8 +68,7 @@ func Run(domain, queryType, server string, dnssec bool) error {
 		return fmt.Errorf("failed reading response length: %v", err)
 	}
 
-	// Calculate the message length from the 2-byte prefix
-	messageLength := int(lengthBuf[0])<<8 | int(lengthBuf[1])
+	messageLength := binary.BigEndian.Uint16(lengthBuf)
 
 	responseBuf := make([]byte, messageLength)
 	n, err := tlsConn.Read(responseBuf)
