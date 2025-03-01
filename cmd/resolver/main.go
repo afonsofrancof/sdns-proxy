@@ -5,6 +5,7 @@ import (
 
 	"github.com/afonsofrancof/sdns-perf/internal/protocols/do53"
 	"github.com/afonsofrancof/sdns-perf/internal/protocols/doh"
+	"github.com/afonsofrancof/sdns-perf/internal/protocols/doq"
 	"github.com/afonsofrancof/sdns-perf/internal/protocols/dot"
 	"github.com/alecthomas/kong"
 )
@@ -45,20 +46,35 @@ var cli struct {
 }
 
 func (c *Do53Cmd) Run() error {
-	return do53.Run(c.DomainName, c.QueryType, c.Server, c.DNSSEC)
+	do53client, err := do53.New(c.Server)
+	if err != nil {
+		return err
+	}
+	return do53client.Query(c.DomainName, c.QueryType, c.Server, c.DNSSEC)
 }
 
 func (c *DoHCmd) Run() error {
-	return doh.Run(c.DomainName, c.QueryType, c.Server, c.Path,c.Proxy, c.DNSSEC)
+	dohclient, err := doh.New(c.Server, c.Path, c.Proxy)
+	if err != nil {
+		return err
+	}
+	return dohclient.Query(c.DomainName, c.QueryType, c.DNSSEC)
 }
 
 func (c *DoTCmd) Run() error {
-	return dot.Run(c.DomainName, c.QueryType, c.Server, c.DNSSEC)
+	dotclient, err := dot.New(c.Server)
+	if err != nil {
+		return err
+	}
+	return dotclient.Query(c.DomainName, c.QueryType, c.Server, c.DNSSEC)
 }
 
 func (c *DoQCmd) Run() error {
-	// TODO: Implement DoQ query
-	return nil
+	doqclient, err := doq.New(c.Server)
+	if err != nil {
+		return err
+	}
+	return doqclient.Query(c.DomainName, c.QueryType, c.DNSSEC)
 }
 
 func main() {

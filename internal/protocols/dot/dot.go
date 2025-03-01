@@ -9,35 +9,35 @@ import (
 	"os"
 
 	"github.com/afonsofrancof/sdns-perf/internal/protocols/do53"
-	"golang.org/x/net/dns/dnsmessage"
+	"github.com/miekg/dns"
 )
 
-func Run(domain, queryType, server string, dnssec bool) error {
+type DoTClient struct {
+	tcpConn    *net.TCPConn
+	tlsConn    *tls.Conn
+	keyLogFile *os.File
+}
 
-	DNSMessage, err := do53.MakeDNSMessage(domain, queryType)
+func New(target string) (*DoTClient, error) {
+
+	tcpAddr, err := net.ResolveTCPAddr("tcp", target)
 	if err != nil {
-		return err
+		return nil, fmt.Errorf("failed to resolve TCP address: %v", err)
 	}
 
-	// Step 1 - Establish a TCP Connection
-	tcpConn, err := net.Dial("tcp", server)
+	tcpConn, err := net.DialTCP("tcp", nil, tcpAddr)
 	if err != nil {
-		return fmt.Errorf("failed to establish TCP connection: %v", err)
+		return nil, fmt.Errorf("failed to establish TCP connection: %v", err)
 	}
-	defer tcpConn.Close()
 
-	// Step 2 - Upgrade it to a TLS Connection
-
-	// Temporary keylog file to allow traffic inspection
 	keyLogFile, err := os.OpenFile(
 		"tls-key-log.txt",
 		os.O_APPEND|os.O_CREATE|os.O_WRONLY,
 		0600,
 	)
 	if err != nil {
-		return fmt.Errorf("failed opening key log file: %v", err)
+		return nil, fmt.Errorf("failed opening key log file: %v", err)
 	}
-	defer keyLogFile.Close()
 
 	tlsConfig := &tls.Config{
 		InsecureSkipVerify: true,
@@ -48,22 +48,43 @@ func Run(domain, queryType, server string, dnssec bool) error {
 	tlsConn := tls.Client(tcpConn, tlsConfig)
 	err = tlsConn.Handshake()
 	if err != nil {
-		return fmt.Errorf("failed to execute the TLS handshake: %v", err)
+		return nil, fmt.Errorf("failed to execute the TLS handshake: %v", err)
 	}
-	defer tlsConn.Close()
+
+	return &DoTClient{tcpConn: tcpConn, tlsConn: tlsConn, keyLogFile: keyLogFile}, nil
+}
+
+func (c *DoTClient) Close() {
+	if c.tcpConn != nil {
+		c.tcpConn.Close()
+	}
+	if c.tlsConn != nil {
+		c.tlsConn.Close()
+	}
+	if c.keyLogFile != nil {
+		c.keyLogFile.Close()
+	}
+}
+
+func (c *DoTClient) Query(domain, queryType, target string, dnssec bool) error {
+
+	DNSMessage, err := do53.NewDNSMessage(domain, queryType)
+	if err != nil {
+		return err
+	}
 
 	var lengthPrefixedMessage bytes.Buffer
 	binary.Write(&lengthPrefixedMessage, binary.BigEndian, uint16(len(DNSMessage)))
 	lengthPrefixedMessage.Write(DNSMessage)
 
-	_, err = tlsConn.Write(lengthPrefixedMessage.Bytes())
+	_, err = c.tlsConn.Write(lengthPrefixedMessage.Bytes())
 	if err != nil {
 		return fmt.Errorf("failed writing TLS request: %v", err)
 	}
 
 	// Read the 2-byte length prefix
 	lengthBuf := make([]byte, 2)
-	_, err = tlsConn.Read(lengthBuf)
+	_, err = c.tlsConn.Read(lengthBuf)
 	if err != nil {
 		return fmt.Errorf("failed reading response length: %v", err)
 	}
@@ -71,73 +92,21 @@ func Run(domain, queryType, server string, dnssec bool) error {
 	messageLength := binary.BigEndian.Uint16(lengthBuf)
 
 	responseBuf := make([]byte, messageLength)
-	n, err := tlsConn.Read(responseBuf)
+	n, err := c.tlsConn.Read(responseBuf)
 	if err != nil {
 		return fmt.Errorf("failed reading TLS response: %v", err)
 	}
 
-	// Parse the response
-	var parser dnsmessage.Parser
-	header, err := parser.Start(responseBuf[:n])
+	recvMsg := new(dns.Msg)
+	err = recvMsg.Unpack(responseBuf[:n])
 	if err != nil {
 		return fmt.Errorf("failed to parse DNS response: %v", err)
 	}
 
-	fmt.Printf("DNS Response Header:\n")
-	fmt.Printf("  ID: %d\n", header.ID)
-	fmt.Printf("  Response: %v\n", header.Response)
-	fmt.Printf("  RCode: %v\n", header.RCode)
+	// TODO: Check if the response had no errors or TD bit set
 
-	// Skip all questions before reading answers
-	err = parser.SkipAllQuestions()
-	if err != nil {
-		return fmt.Errorf("failed to skip questions: %v", err)
-	}
-
-	// Parse answers
-	fmt.Printf("\nAnswers:\n")
-	answers, err := parser.AllAnswers()
-
-	for i, answer := range answers {
-
-		if err != nil {
-			return fmt.Errorf("failed to parse answer %d: %v", i, err)
-		}
-
-		fmt.Printf("  Answer %d:\n", i+1)
-		fmt.Printf("    Name: %v\n", answer.Header.Name)
-		fmt.Printf("    Type: %v\n", answer.Header.Type)
-		fmt.Printf("    TTL: %v seconds\n", answer.Header.TTL)
-
-		// Handle different record types
-		switch answer.Header.Type {
-		case dnsmessage.TypeA:
-			if r, ok := answer.Body.(*dnsmessage.AResource); ok {
-				fmt.Printf("    IPv4: %d.%d.%d.%d\n", r.A[0], r.A[1], r.A[2], r.A[3])
-			}
-		case dnsmessage.TypeAAAA:
-			if r, ok := answer.Body.(*dnsmessage.AAAAResource); ok {
-				ip := r.AAAA
-				fmt.Printf("    IPv6: %02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x\n",
-					ip[0], ip[1], ip[2], ip[3], ip[4], ip[5], ip[6], ip[7],
-					ip[8], ip[9], ip[10], ip[11], ip[12], ip[13], ip[14], ip[15])
-			}
-		case dnsmessage.TypeCNAME:
-			if r, ok := answer.Body.(*dnsmessage.CNAMEResource); ok {
-				fmt.Printf("    CNAME: %v\n", r.CNAME)
-			}
-		case dnsmessage.TypeMX:
-			if r, ok := answer.Body.(*dnsmessage.MXResource); ok {
-				fmt.Printf("    Preference: %v\n", r.Pref)
-				fmt.Printf("    MX: %v\n", r.MX)
-			}
-		case dnsmessage.TypeTXT:
-			if r, ok := answer.Body.(*dnsmessage.TXTResource); ok {
-				fmt.Printf("    TXT: %v\n", r.TXT)
-			}
-		default:
-			fmt.Printf("    [Unsupported record type]\n")
-		}
+	for _, answer := range recvMsg.Answer {
+		fmt.Println(answer.String())
 	}
 
 	return nil

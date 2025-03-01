@@ -1,60 +1,40 @@
 package do53
 
 import (
-	"fmt"
-
-	"golang.org/x/net/dns/dnsmessage"
+	"github.com/miekg/dns"
 )
 
-func MakeDNSMessage(domain string, queryType string) ([]byte, error) {
-	messageHeader := dnsmessage.Header{
-		ID:               1234, // FIX: Use a random ID
-		Response:         false,
-		OpCode:           dnsmessage.OpCode(0),
-		RecursionDesired: true,
-	}
+func NewDNSMessage(domain string, queryType string) ([]byte, error) {
 
-	messageBuilder := dnsmessage.NewBuilder(nil, messageHeader)
-	queryName, err := dnsmessage.NewName(domain)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create query name: %v", err)
-	}
-
-	// Determine query type
-	var queryTypeValue dnsmessage.Type
+	// TODO: Move this somewhere else and receive the type already parsed
+	var queryTypeValue uint16
 	switch queryType {
 	case "A":
-		queryTypeValue = dnsmessage.TypeA
+		queryTypeValue = dns.TypeA
 	case "AAAA":
-		queryTypeValue = dnsmessage.TypeAAAA
+		queryTypeValue = dns.TypeAAAA
 	case "MX":
-		queryTypeValue = dnsmessage.TypeMX
+		queryTypeValue = dns.TypeMX
 	case "CNAME":
-		queryTypeValue = dnsmessage.TypeCNAME
+		queryTypeValue = dns.TypeCNAME
 	case "TXT":
-		queryTypeValue = dnsmessage.TypeTXT
+		queryTypeValue = dns.TypeTXT
 	default:
-		queryTypeValue = dnsmessage.TypeA
+		queryTypeValue = dns.TypeA
 	}
 
-	messageQuestion := dnsmessage.Question{
-		Name:  queryName,
-		Type:  queryTypeValue,
-		Class: dnsmessage.ClassINET,
-	}
+	message := new(dns.Msg)
 
-	err = messageBuilder.StartQuestions()
+	message.Id = dns.Id()
+	message.Response = false
+	message.Opcode = dns.OpcodeQuery
+	message.Question = make([]dns.Question, 1)
+	message.Question[0] = dns.Question{Name: domain, Qtype: uint16(queryTypeValue), Qclass: dns.ClassINET}
+	message.Compress = true
+	wireMsg, err := message.Pack()
 	if err != nil {
 		return nil, err
 	}
-	err = messageBuilder.Question(messageQuestion)
-	if err != nil {
-		return nil, fmt.Errorf("failed to add question: %v", err)
-	}
 
-	message, err := messageBuilder.Finish()
-	if err != nil {
-		return nil, fmt.Errorf("failed to build message: %v", err)
-	}
-	return message, nil
+	return wireMsg, nil
 }
