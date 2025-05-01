@@ -1,268 +1,138 @@
 package main
 
 import (
-	"bufio"
+	"fmt"
 	"log"
 	"os"
 	"strings"
+	"time"
 
-	"github.com/afonsofrancof/sdns-perf/internal/protocols/do53"
-	"github.com/afonsofrancof/sdns-perf/internal/protocols/doh"
-	"github.com/afonsofrancof/sdns-perf/internal/protocols/doq"
-	"github.com/afonsofrancof/sdns-perf/internal/protocols/dot"
+	"github.com/afonsofrancof/sdns-perf/internal/client"
+
 	"github.com/alecthomas/kong"
+	"github.com/miekg/dns"
 )
 
-type CommonFlags struct {
-	DomainName string `help:"Domain name to resolve" arg:"" required:""`
-	QueryType  string `help:"Query type" enum:"A,AAAA,MX,TXT,NS,CNAME,SOA,PTR" default:"A"`
-	Server     string `help:"DNS server to use" required:""`
-	DNSSEC     bool   `help:"Enable DNSSEC validation"`
-}
-
-type DoHCmd struct {
-	CommonFlags `embed:""`
-	HTTP3       bool   `help:"Use HTTP/3" name:"http3"`
-	Path        string `help:"The HTTP path for the POST request" name:"path" required:""`
-	Proxy       string `help:"The Proxy to use with ODoH"`
-}
-
-type DoTCmd struct {
-	CommonFlags
-}
-
-type DoQCmd struct {
-	CommonFlags
-}
-
-type Do53Cmd struct {
-	CommonFlags
-}
-
-type Listen struct {
-
-}
-
 var cli struct {
-	Verbose bool `help:"Enable verbose logging" short:"v"`
+	// Global flags
+	Verbose bool `help:"Enable verbose logging." short:"v"`
 
-	DoH  DoHCmd  `cmd:"doh" help:"Query using DNS-over-HTTPS" name:"doh"`
-	DoT  DoTCmd  `cmd:"dot" help:"Query using DNS-over-TLS" name:"dot"`
-	DoQ  DoQCmd  `cmd:"doq" help:"Query using DNS-over-QUIC" name:"doq"`
-	Do53 Do53Cmd `cmd:"doq" help:"Query using plain DNS over UDP" name:"do53"`
-	Listen Listen `cmd:"listen"`
+	Query  QueryCmd  `cmd:"" help:"Perform a DNS query (client mode)."`
+	Listen ListenCmd `cmd:"" help:"Run as a DNS listener/resolver (server mode)."`
 }
 
-func (c *Do53Cmd) Run() error {
-	do53client, err := do53.New(c.Server)
+type QueryCmd struct {
+	DomainName string        `help:"Domain name to resolve." arg:"" required:""`
+	Server     string        `help:"Upstream server address (e.g., https://1.1.1.1/dns-query, tls://1.1.1.1, 8.8.8.8)." short:"s" required:""`
+	QueryType  string        `help:"Query type (A, AAAA, MX, TXT, etc.)." short:"t" enum:"A,AAAA,MX,TXT,NS,CNAME,SOA,PTR" default:"A"`
+	DNSSEC     bool          `help:"Enable DNSSEC (DO bit)." short:"d"`
+	Timeout    time.Duration `help:"Timeout for the query operation." default:"10s"` // Default might be higher now
+	KeyLogFile string        `help:"Path to TLS key log file (for DoT/DoH/DoQ)." env:"SSLKEYLOGFILE"`
+}
+
+func (q *QueryCmd) Run() error {
+	log.Printf("Querying %s for %s type %s (DNSSEC: %v, Timeout: %v)\n",
+		q.Server, q.DomainName, q.QueryType, q.DNSSEC, q.Timeout)
+
+	opts := client.Options{
+		Timeout:    q.Timeout,
+		DNSSEC:     q.DNSSEC,
+		KeyLogPath: q.KeyLogFile,
+	}
+
+	dnsClient, err := client.New(q.Server, opts)
 	if err != nil {
 		return err
 	}
-	defer do53client.Close()
-	return do53client.Query(c.DomainName, c.QueryType, c.Server, c.DNSSEC)
-}
+	defer dnsClient.Close()
 
-func (c *DoHCmd) Run() error {
-	dohclient, err := doh.New(c.Server, c.Path, c.Proxy)
-	if err != nil {
-		return err
+	qTypeUint, ok := dns.StringToType[strings.ToUpper(q.QueryType)]
+	if !ok {
+		return fmt.Errorf("invalid query type: %s", q.QueryType)
 	}
-	defer dohclient.Close()
-	return dohclient.Query(c.DomainName, c.QueryType, c.DNSSEC)
-}
 
-func (c *DoTCmd) Run() error {
-	dotclient, err := dot.New(c.Server)
+	dnsMsg, err := dnsClient.Query(q.DomainName, qTypeUint)
 	if err != nil {
-		return err
+		return fmt.Errorf("query failed: %w ", err)
 	}
-	defer dotclient.Close()
-	return dotclient.Query(c.DomainName, c.QueryType, c.Server, c.DNSSEC)
+
+	printResponse(q.DomainName, q.QueryType, dnsMsg)
+
+	return nil
 }
 
-func (c *DoQCmd) Run() error {
-	doqclient, err := doq.New(c.Server)
-	if err != nil {
-		return err
+type ListenCmd struct {
+	Address string `help:"Address to listen on (e.g., :53, :8053)." default:":53"`
+	// Add other server-specific flags: default upstream, TLS cert/key paths etc.
+}
+
+func (l *ListenCmd) Run() error {
+	return fmt.Errorf("server/listen mode not yet implemented")
+}
+
+func printResponse(domain, qtype string, msg *dns.Msg) {
+	fmt.Println(";; QUESTION SECTION:")
+
+	fmt.Printf(";%s.\tIN\t%s\n", dns.Fqdn(domain), strings.ToUpper(qtype))
+
+	fmt.Println("\n;; ANSWER SECTION:")
+	if len(msg.Answer) > 0 {
+		for _, rr := range msg.Answer {
+			fmt.Println(rr.String())
+		}
+	} else {
+		fmt.Println(";; No records found in answer section.")
 	}
-	defer doqclient.Close()
-	return doqclient.Query(c.DomainName, c.QueryType, c.DNSSEC)
-}
 
-func (l *Listen) Run() error {
-    // Maps to store clients for reuse
-    do53Clients := make(map[string]*do53.Do53Client)
-    dotClients := make(map[string]*dot.DoTClient)
-    doqClients := make(map[string]*doq.DoQClient)
-    dohClients := make(map[string]*doh.DoHClient) // Using server+path+proxy as key
-    
-    scanner := bufio.NewScanner(os.Stdin)
-    log.Println("Listening for input. Format: protocol domain server [options]")
-    
-    for scanner.Scan() {
-        line := scanner.Text()
-        fields := strings.Fields(line)
-        
-        if len(fields) < 3 {
-            log.Printf("Invalid input: %s. Format should be 'protocol domain server [options]'", line)
-            continue
-        }
-        
-        protocol := fields[0]
-        domain := fields[1]
-        server := fields[2]
-        
-        // Default query type and DNSSEC setting
-        queryType := "A"
-        dnssec := false
-        
-        switch protocol {
-        case "do53":
-            // Parse additional options
-            if len(fields) > 3 {
-                queryType = fields[3]
-            }
-            if len(fields) > 4 && fields[4] == "dnssec" {
-                dnssec = true
-            }
-            
-            // Check if client exists, if not create it
-            client, exists := do53Clients[server]
-            if !exists {
-                var err error
-                client, err = do53.New(server)
-                if err != nil {
-                    log.Printf("Error creating Do53 client: %v", err)
-                    continue
-                }
-                do53Clients[server] = client
-            }
-            
-            err := client.Query(domain, queryType, server, dnssec)
-            if err != nil {
-                log.Printf("Error querying with Do53: %v", err)
-            }
-            
-        case "dot":
-            // Parse additional options
-            if len(fields) > 3 {
-                queryType = fields[3]
-            }
-            if len(fields) > 4 && fields[4] == "dnssec" {
-                dnssec = true
-            }
-            
-            client, exists := dotClients[server]
-            if !exists {
-                var err error
-                client, err = dot.New(server)
-                if err != nil {
-                    log.Printf("Error creating DoT client: %v", err)
-                    continue
-                }
-                dotClients[server] = client
-            }
-            
-            err := client.Query(domain, queryType, server, dnssec)
-            if err != nil {
-                log.Printf("Error querying with DoT: %v", err)
-            }
-            
-        case "doq":
-            // Parse additional options
-            if len(fields) > 3 {
-                queryType = fields[3]
-            }
-            if len(fields) > 4 && fields[4] == "dnssec" {
-                dnssec = true
-            }
-            
-            client, exists := doqClients[server]
-            if !exists {
-                var err error
-                client, err = doq.New(server)
-                if err != nil {
-                    log.Printf("Error creating DoQ client: %v", err)
-                    continue
-                }
-                doqClients[server] = client
-            }
-            
-            err := client.Query(domain, queryType, dnssec)
-            if err != nil {
-                log.Printf("Error querying with DoQ: %v", err)
-            }
-            
-        case "doh":
-            // DoH requires path parameter
-            if len(fields) < 4 {
-                log.Printf("DoH requires a path parameter")
-                continue
-            }
-            
-            path := fields[3]
-            proxy := ""
-            
-            // Parse additional options
-            if len(fields) > 4 {
-                queryType = fields[4]
-            }
-            
-            if len(fields) > 5 {
-                if fields[5] == "dnssec" {
-                    dnssec = true
-                } else {
-                    proxy = fields[5]
-                }
-            }
-            
-            if len(fields) > 6 && fields[6] == "dnssec" {
-                dnssec = true
-            }
-            
-            // Create a composite key for DoH clients
-            key := server + ":" + path + ":" + proxy
-            client, exists := dohClients[key]
-            if !exists {
-                var err error
-                client, err = doh.New(server, path, proxy)
-                if err != nil {
-                    log.Printf("Error creating DoH client: %v", err)
-                    continue
-                }
-                dohClients[key] = client
-            }
-            
-            err := client.Query(domain, queryType, dnssec)
-            if err != nil {
-                log.Printf("Error querying with DoH: %v", err)
-            }
-            
-        default:
-            log.Printf("Unknown protocol: %s", protocol)
-        }
-    }
-    
-    if err := scanner.Err(); err != nil {
-        return err
-    }
-    
-    return nil
-}
+	if len(msg.Ns) > 0 {
+		fmt.Println("\n;; AUTHORITY SECTION:")
+		for _, rr := range msg.Ns {
+			fmt.Println(rr.String())
+		}
+	}
+	if len(msg.Extra) > 0 {
+		hasRealExtra := false
+		for _, rr := range msg.Extra {
+			if rr.Header().Rrtype != dns.TypeOPT {
+				hasRealExtra = true
+				break
+			}
+		}
+		if hasRealExtra {
+			fmt.Println("\n;; ADDITIONAL SECTION:")
+			for _, rr := range msg.Extra {
+				if rr.Header().Rrtype != dns.TypeOPT {
+					fmt.Println(rr.String())
+				}
+			}
+		}
+	}
 
+	fmt.Printf("\n;; RCODE: %s, ID: %d", dns.RcodeToString[msg.Rcode], msg.Id)
+	opt := msg.IsEdns0()
+	if opt != nil {
+		fmt.Printf(", EDNS: version: %d; flags:", opt.Version())
+		if opt.Do() {
+			fmt.Printf(" do;")
+		} else {
+			fmt.Printf(";")
+		}
+		fmt.Printf(" udp: %d", opt.UDPSize())
+	}
+	fmt.Println()
+}
 
 func main() {
-	ctx := kong.Parse(&cli,
-		kong.Name("dns-go"),
-		kong.Description("A DNS resolver supporting DoH, DoT, and DoQ protocols"),
-		kong.UsageOnError(),
-		kong.ConfigureHelp(kong.HelpOptions{
-			Compact: true,
-			Summary: true,
-		}))
+	log.SetOutput(os.Stderr)
+	log.SetFlags(log.Ltime | log.Lshortfile)
 
-	err := ctx.Run()
-	if err != nil {
-		log.Fatalf("Error: %v", err)
-	}
+	kongCtx := kong.Parse(&cli,
+		kong.Name("sdns-perf"),
+		kong.Description("A DNS client/server tool supporting multiple protocols."),
+		kong.UsageOnError(),
+		kong.ConfigureHelp(kong.HelpOptions{Compact: true, Summary: true}),
+	)
+
+	err := kongCtx.Run()
+	kongCtx.FatalIfErrorf(err)
 }

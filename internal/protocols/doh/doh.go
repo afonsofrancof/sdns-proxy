@@ -1,121 +1,125 @@
 package doh
 
 import (
-	"bufio"
 	"bytes"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
-	"os"
+	"net/url"
+	"strings"
 
-	"github.com/afonsofrancof/sdns-perf/internal/protocols/do53"
 	"github.com/miekg/dns"
 )
 
-type DoHClient struct {
-	tcpConn    *net.TCPConn
-	tlsConn    *tls.Conn
-	keyLogFile *os.File
-	target     string
-	path       string
-	proxy      string
+const dnsMessageContentType = "application/dns-message"
+
+type Config struct {
+	Host   string
+	Port   string
+	Path   string
+	DNSSEC bool
 }
 
-func New(target, path, proxy string) (*DoHClient, error) {
+type Client struct {
+	httpClient  *http.Client
+	upstreamURL *url.URL
+	config      Config
+}
 
-	tcpAddr, err := net.ResolveTCPAddr("tcp", target)
-	if err != nil {
-		return nil, fmt.Errorf("failed to resolve TCP address: %v", err)
+func New(config Config) (*Client, error) {
+	if config.Host == "" || config.Port == "" || config.Path == "" {
+		fmt.Printf("%v,%v,%v", config.Host,config.Port,config.Path)
+		return nil, errors.New("doh: host, port, and path must not be empty")
 	}
 
-	tcpConn, err := net.DialTCP("tcp", nil, tcpAddr)
-	if err != nil {
-		return nil, fmt.Errorf("failed to establish TCP connection: %v", err)
+	if !strings.HasPrefix(config.Path, "/") {
+		config.Path = "/" + config.Path
 	}
+	rawURL := "https://" + net.JoinHostPort(config.Host, config.Port) + config.Path
 
-	keyLogFile, err := os.OpenFile(
-		"tls-key-log.txt",
-		os.O_APPEND|os.O_CREATE|os.O_WRONLY,
-		0600,
-	)
+	parsedURL, err := url.Parse(rawURL)
 	if err != nil {
-		return nil, fmt.Errorf("failed opening key log file: %v", err)
+		return nil, fmt.Errorf("doh: failed to parse constructed URL %q: %w", rawURL, err)
 	}
 
 	tlsConfig := &tls.Config{
-		// FIX: Actually check the domain name
-		InsecureSkipVerify: true,
-		MinVersion:         tls.VersionTLS12,
-		KeyLogWriter:       keyLogFile,
+		ServerName: config.Host,
+		MinVersion: tls.VersionTLS12,
 	}
 
-	tlsConn := tls.Client(tcpConn, tlsConfig)
-	err = tlsConn.Handshake()
-	if err != nil {
-		return nil, fmt.Errorf("failed to execute the TLS handshake: %v", err)
+	transport := &http.Transport{
+		TLSClientConfig:   tlsConfig,
+		ForceAttemptHTTP2: true,
 	}
 
-	return &DoHClient{tcpConn: tcpConn, keyLogFile: keyLogFile, tlsConn: tlsConn, target: target, path: path, proxy: proxy}, err
+	httpClient := &http.Client{
+		Transport: transport,
+	}
 
+	return &Client{
+		httpClient:  httpClient,
+		upstreamURL: parsedURL,
+		config:      config,
+	}, nil
 }
 
-func (c *DoHClient) Close() {
-	if c.tcpConn != nil {
-		c.tcpConn.Close()
-	}
-	if c.keyLogFile != nil {
-		c.keyLogFile.Close()
-	}
-	if c.tlsConn != nil {
-		c.tlsConn.Close()
-	}
+// Close cleans up idle connections held by the underlying HTTP transport.
+func (c *Client) Close() {
+	c.httpClient.CloseIdleConnections()
 }
 
-func (c *DoHClient) Query(domain, queryType string, dnssec bool) error {
+func (c *Client) Query(domain string, queryType uint16) (*dns.Msg, error) {
+	msg := new(dns.Msg)
+	msg.SetQuestion(dns.Fqdn(domain), queryType)
+	msg.Id = dns.Id()
+	msg.RecursionDesired = true
 
-	DNSMessage, err := do53.NewDNSMessage(domain, queryType)
+	if c.config.DNSSEC {
+		msg.SetEdns0(4096, true)
+	}
+
+	packedMsg, err := msg.Pack()
 	if err != nil {
-		return err
+		return nil, fmt.Errorf("doh: failed to pack DNS message: %w", err)
 	}
 
-	httpReq, err := http.NewRequest("POST", "https://"+c.target+"/"+c.path, bytes.NewBuffer(DNSMessage))
+	httpReq, err := http.NewRequest("POST", c.upstreamURL.String(), bytes.NewReader(packedMsg))
 	if err != nil {
-		return fmt.Errorf("failed to create HTTP request: %v", err)
+		return nil, fmt.Errorf("doh: failed to create HTTP request object: %w", err)
 	}
-	httpReq.Header.Add("Content-Type", "application/dns-message")
-	httpReq.Header.Set("Accept", "application/dns-message")
 
-	err = httpReq.Write(c.tlsConn)
+	httpReq.Header.Set("User-Agent", "sdns-perf")
+	httpReq.Header.Set("Content-Type", dnsMessageContentType)
+	httpReq.Header.Set("Accept", dnsMessageContentType)
+
+	httpResp, err := c.httpClient.Do(httpReq)
 	if err != nil {
-		return fmt.Errorf("failed writing HTTP request: %v", err)
+		return nil, fmt.Errorf("doh: failed executing HTTP request to %s: %w", c.upstreamURL.Host, err)
+	}
+	defer httpResp.Body.Close()
+
+	if httpResp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("doh: received non-200 HTTP status from %s: %s", c.upstreamURL.Host, httpResp.Status)
 	}
 
-	reader := bufio.NewReader(c.tlsConn)
-	resp, err := http.ReadResponse(reader, httpReq)
+	if ct := httpResp.Header.Get("Content-Type"); ct != dnsMessageContentType {
+		return nil, fmt.Errorf("doh: unexpected Content-Type from %s: got %q, want %q", c.upstreamURL.Host, ct, dnsMessageContentType)
+	}
+
+	responseBody, err := io.ReadAll(httpResp.Body)
 	if err != nil {
-		return fmt.Errorf("failed reading HTTP response: %v", err)
-	}
-	defer resp.Body.Close()
-
-	responseBody := make([]byte, 4096)
-	n, err := resp.Body.Read(responseBody)
-	if err != nil && err != io.EOF {
-		return fmt.Errorf("failed reading response body: %v", err)
+		return nil, fmt.Errorf("doh: failed reading response body from %s: %w", c.upstreamURL.Host, err)
 	}
 
+	// Unpack the DNS message
 	recvMsg := new(dns.Msg)
-	err = recvMsg.Unpack(responseBody[:n])
+	err = recvMsg.Unpack(responseBody)
 	if err != nil {
-		return fmt.Errorf("failed to parse DNS response: %v", err)
+		return nil, fmt.Errorf("doh: failed to unpack DNS response from %s: %w", c.upstreamURL.Host, err)
 	}
 
-	// TODO: Check if the response had no errors or TD bit set
-
-	for _, answer := range recvMsg.Answer {
-		fmt.Println(answer.String())
-	}
-
-	return nil
+	return recvMsg, nil
 }
