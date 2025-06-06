@@ -1,161 +1,130 @@
 package dot
 
 import (
-	"context"
 	"crypto/tls"
 	"encoding/binary"
 	"fmt"
 	"io"
-	"log"
 	"net"
-	"os"
-	"sync"
 	"time"
 
 	"github.com/miekg/dns"
 )
 
 type Config struct {
-	Host   string
-	Port   string
-	DNSSEC bool
-	Debug  bool
+	Host         string
+	Port         string
+	DNSSEC       bool
+	WriteTimeout time.Duration
+	ReadTimeout  time.Duration
+	Debug        bool
 }
 
 type Client struct {
-	config Config
-
-	serverAddr *net.TCPAddr
-
-	tcpConn    *net.TCPConn
-	tlsConn    *tls.Conn
-	tlsConfig  *tls.Config
-	keyLogFile *os.File
-
-	sendChannel chan *dns.Msg
-
-	responseChannels map[uint16]chan *dns.Msg
-	responseMutex    *sync.Mutex
+	hostAndPort string
+	tlsConfig   *tls.Config
+	config      Config
 }
 
 func New(config Config) (*Client, error) {
-	serverAddr, err := net.ResolveTCPAddr("tcp", net.JoinHostPort(config.Host, config.Port))
-	if err != nil {
-		return nil, fmt.Errorf("dot: failed to resolve TCP address %q: %w", config.Host, err)
+	if config.Host == "" {
+		return nil, fmt.Errorf("dot: Host cannot be empty")
+	}
+	if config.WriteTimeout <= 0 {
+		config.WriteTimeout = 2 * time.Second
+	}
+	if config.ReadTimeout <= 0 {
+		config.ReadTimeout = 5 * time.Second
 	}
 
-	var keyLogFile *os.File
-	if config.Debug {
-		keyLogFile, err = os.OpenFile(
-			"tls-key-log.txt",
-			os.O_APPEND|os.O_CREATE|os.O_WRONLY,
-			0600,
-		)
-		if err != nil {
-			log.Printf("dot: failed opening TLS key log file: %v", err)
-			keyLogFile = nil
-		}
-	}
+	hostAndPort := net.JoinHostPort(config.Host, config.Port)
 
 	tlsConfig := &tls.Config{
-		ServerName:         serverAddr.IP.String(),
-		MinVersion:         tls.VersionTLS12,
-		KeyLogWriter:       keyLogFile,
-		ClientSessionCache: tls.NewLRUClientSessionCache(100),
+		ServerName:         config.Host,
 	}
 
-	client := &Client{
-		config:     config,
-		serverAddr: serverAddr,
-		tlsConfig:  tlsConfig,
-		keyLogFile: keyLogFile,
-	}
-
-	go client.receiveLoop()
-
-	return client, nil
+	return &Client{
+		hostAndPort: hostAndPort,
+		tlsConfig:   tlsConfig,
+		config:      config,
+	}, nil
 }
 
 func (c *Client) Close() {
-	if c.tlsConn != nil {
-		c.tlsConn.Close()
-		c.tlsConn = nil
-	}
-
-	if c.tcpConn != nil {
-		c.tcpConn.Close()
-		c.tcpConn = nil
-	}
-
-	if c.keyLogFile != nil {
-		c.keyLogFile.Close()
-		c.keyLogFile = nil
-	}
 }
 
-func (c *Client) receiveLoop() {
-
-	lengthBuffer := make([]byte, 2)
-	buffer := make([]byte, dns.MaxMsgSize)
-
-	for {
-		msgSize, err := io.ReadFull(c.tlsConn, lengthBuffer)
-		if err != nil {
-			log.Printf("doh: failed to read the DNS message's size: %s", err.Error())
-			// FIX: HANDLE RECONNECTION
-		}
-		n, err := io.ReadFull(c.tlsConn, buffer[:msgSize])
-		if err != nil {
-			log.Printf("doh: failed to read the DNS message: %s", err.Error())
-			// FIX: HANDLE RECONNECTION
-		}
-
-		recvMsg := new(dns.Msg)
-		err = recvMsg.Unpack(buffer[:n])
-		if err != nil {
-			log.Printf("do53: failed to unpack DNS response: %s", err.Error())
-			continue
-		}
-
-		c.responseMutex.Lock()
-		respChan, ok := c.responseChannels[recvMsg.Id]
-		delete(c.responseChannels, recvMsg.Id)
-		c.responseMutex.Unlock()
-
-		if ok {
-			respChan <- recvMsg
-		} else {
-			log.Printf("Receiver: Received DNS response for unknown or already processed msg ID: %v\n", recvMsg.Id)
-		}
-
+func (c *Client) createConnection() (*tls.Conn, error) {
+	dialer := &net.Dialer{
+		Timeout: c.config.WriteTimeout,
 	}
-
-}
-
-func (c *Client) connect(ctx context.Context) error {
-	tcpConn, err := net.DialTCP("tcp", nil, c.serverAddr)
-	if err != nil {
-		return fmt.Errorf("dot: failed to establish TCP connection: %w", err)
-	}
-
-	c.tcpConn.SetKeepAlive(true)
-	c.tcpConn.SetKeepAlivePeriod(1 * time.Minute)
-
-	tlsConn := tls.Client(c.tcpConn, c.tlsConfig)
-	err = tlsConn.HandshakeContext(ctx)
-	if err != nil {
-		c.tcpConn.Close()
-		c.tcpConn = nil
-		return fmt.Errorf("dot: failed to execute the TLS handshake: %w", err)
-	}
-
-	c.tlsConn = tlsConn
-
-	log.Println("dot: TCP/TLS connection established successfully.")
-
-	return nil
+	
+	return tls.DialWithDialer(dialer, "tcp", c.hostAndPort, c.tlsConfig)
 }
 
 func (c *Client) Query(domain string, queryType uint16) (*dns.Msg, error) {
-	//TODO
+	// Create connection for this query
+	conn, err := c.createConnection()
+	if err != nil {
+		return nil, fmt.Errorf("dot: failed to create connection: %w", err)
+	}
+	defer conn.Close()
+
+	// Prepare DNS message
+	msg := new(dns.Msg)
+	msg.SetQuestion(dns.Fqdn(domain), queryType)
+	msg.Id = dns.Id()
+	msg.RecursionDesired = true
+
+	if c.config.DNSSEC {
+		msg.SetEdns0(4096, true)
+	}
+
+	packed, err := msg.Pack()
+	if err != nil {
+		return nil, fmt.Errorf("dot: failed to pack message: %w", err)
+	}
+
+	// Prepend message length (DNS over TCP format)
+	length := make([]byte, 2)
+	binary.BigEndian.PutUint16(length, uint16(len(packed)))
+	data := append(length, packed...)
+
+	// Write query
+	if err := conn.SetWriteDeadline(time.Now().Add(c.config.WriteTimeout)); err != nil {
+		return nil, fmt.Errorf("dot: failed to set write deadline: %w", err)
+	}
+
+	if _, err := conn.Write(data); err != nil {
+		return nil, fmt.Errorf("dot: failed to write message: %w", err)
+	}
+
+	// Read response
+	if err := conn.SetReadDeadline(time.Now().Add(c.config.ReadTimeout)); err != nil {
+		return nil, fmt.Errorf("dot: failed to set read deadline: %w", err)
+	}
+
+	// Read message length
+	lengthBuf := make([]byte, 2)
+	if _, err := io.ReadFull(conn, lengthBuf); err != nil {
+		return nil, fmt.Errorf("dot: failed to read response length: %w", err)
+	}
+
+	msgLen := binary.BigEndian.Uint16(lengthBuf)
+	if msgLen > dns.MaxMsgSize {
+		return nil, fmt.Errorf("dot: response message too large: %d", msgLen)
+	}
+
+	// Read message body
+	buffer := make([]byte, msgLen)
+	if _, err := io.ReadFull(conn, buffer); err != nil {
+		return nil, fmt.Errorf("dot: failed to read response: %w", err)
+	}
+
+	// Parse response
+	response := new(dns.Msg)
+	if err := response.Unpack(buffer); err != nil {
+		return nil, fmt.Errorf("dot: failed to unpack response: %w", err)
+	}
+
+	return response, nil
 }

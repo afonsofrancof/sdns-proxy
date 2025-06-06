@@ -7,16 +7,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/afonsofrancof/sdns-perf/internal/client"
+	"github.com/afonsofrancof/sdns-proxy/internal/client"
+	"github.com/afonsofrancof/sdns-proxy/internal/server"
 
 	"github.com/alecthomas/kong"
 	"github.com/miekg/dns"
 )
 
 var cli struct {
-	// Global flags
-	Verbose bool `help:"Enable verbose logging." short:"v"`
-
 	Query  QueryCmd  `cmd:"" help:"Perform a DNS query (client mode)."`
 	Listen ListenCmd `cmd:"" help:"Run as a DNS listener/resolver (server mode)."`
 }
@@ -26,8 +24,18 @@ type QueryCmd struct {
 	Server     string        `help:"Upstream server address (e.g., https://1.1.1.1/dns-query, tls://1.1.1.1, 8.8.8.8)." short:"s" required:""`
 	QueryType  string        `help:"Query type (A, AAAA, MX, TXT, etc.)." short:"t" enum:"A,AAAA,MX,TXT,NS,CNAME,SOA,PTR" default:"A"`
 	DNSSEC     bool          `help:"Enable DNSSEC (DO bit)." short:"d"`
-	Timeout    time.Duration `help:"Timeout for the query operation." default:"10s"` // Default might be higher now
+	Timeout    time.Duration `help:"Timeout for the query operation." default:"10s"`
 	KeyLogFile string        `help:"Path to TLS key log file (for DoT/DoH/DoQ)." env:"SSLKEYLOGFILE"`
+}
+
+type ListenCmd struct {
+	Address   string        `help:"Address to listen on (e.g., :53, :8053)." default:":53"`
+	Upstream  string        `help:"Upstream DNS server (e.g., https://1.1.1.1/dns-query, tls://8.8.8.8)." short:"u" required:""`
+	Fallback  string        `help:"Fallback DNS server (e.g., https://1.1.1.1/dns-query, tls://8.8.8.8)." short:"f"`
+	Bootstrap string        `help:"Bootstrap DNS server (must be an IP address, e.g., 8.8.8.8, 1.1.1.1)." short:"b"`
+	DNSSEC    bool          `help:"Enable DNSSEC for upstream queries." short:"d"`
+	Timeout   time.Duration `help:"Timeout for upstream queries." default:"5s"`
+	Verbose   bool          `help:"Enable verbose logging." short:"v"`
 }
 
 func (q *QueryCmd) Run() error {
@@ -35,9 +43,7 @@ func (q *QueryCmd) Run() error {
 		q.Server, q.DomainName, q.QueryType, q.DNSSEC, q.Timeout)
 
 	opts := client.Options{
-		Timeout:    q.Timeout,
-		DNSSEC:     q.DNSSEC,
-		KeyLogPath: q.KeyLogFile,
+		DNSSEC: q.DNSSEC,
 	}
 
 	dnsClient, err := client.New(q.Server, opts)
@@ -51,23 +57,37 @@ func (q *QueryCmd) Run() error {
 		return fmt.Errorf("invalid query type: %s", q.QueryType)
 	}
 
-	dnsMsg, err := dnsClient.Query(q.DomainName, qTypeUint)
+	msg, err := dnsClient.Query(q.DomainName, qTypeUint)
 	if err != nil {
-		return fmt.Errorf("query failed: %w ", err)
+		return err
 	}
 
-	printResponse(q.DomainName, q.QueryType, dnsMsg)
-
+	printResponse(msg.Question[0].Name, "A", msg)
 	return nil
 }
 
-type ListenCmd struct {
-	Address string `help:"Address to listen on (e.g., :53, :8053)." default:":53"`
-	// Add other server-specific flags: default upstream, TLS cert/key paths etc.
-}
-
 func (l *ListenCmd) Run() error {
-	return fmt.Errorf("server/listen mode not yet implemented")
+	config := server.Config{
+		Address:   l.Address,
+		Upstream:  l.Upstream,
+		Fallback:  l.Fallback,
+		Bootstrap: l.Bootstrap,
+		DNSSEC:    l.DNSSEC,
+		Timeout:   l.Timeout,
+		Verbose:   l.Verbose,
+	}
+
+	srv, err := server.New(config)
+	if err != nil {
+		return fmt.Errorf("failed to create server: %w", err)
+	}
+
+	log.Printf("Starting DNS proxy server on %s", l.Address)
+	log.Printf("Upstream server: %v", l.Upstream)
+	log.Printf("Fallback server: %v", l.Fallback)
+	log.Printf("Bootstrap server: %v", l.Bootstrap)
+
+	return srv.Start()
 }
 
 func printResponse(domain, qtype string, msg *dns.Msg) {
@@ -127,7 +147,7 @@ func main() {
 	log.SetFlags(log.Ltime | log.Lshortfile)
 
 	kongCtx := kong.Parse(&cli,
-		kong.Name("sdns-perf"),
+		kong.Name("sdns-proxy"),
 		kong.Description("A DNS client/server tool supporting multiple protocols."),
 		kong.UsageOnError(),
 		kong.ConfigureHelp(kong.HelpOptions{Compact: true, Summary: true}),

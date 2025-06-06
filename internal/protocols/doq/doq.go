@@ -8,17 +8,21 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"os"
 	"time"
 
-	"github.com/afonsofrancof/sdns-perf/internal/protocols/do53"
 	"github.com/miekg/dns"
 	"github.com/quic-go/quic-go"
 )
 
+type Config struct {
+	Host   string
+	Port   string
+	Debug  bool
+	DNSSEC bool
+}
+
 type Client struct {
 	targetAddr    *net.UDPAddr
-	keyLogFile    *os.File
 	tlsConfig     *tls.Config
 	udpConn       *net.UDPConn
 	quicConn      quic.Connection
@@ -26,34 +30,20 @@ type Client struct {
 	quicConfig    *quic.Config
 }
 
-func New(target string) (*Client, error) {
-	keyLogFile, err := os.OpenFile(
-		"tls-key-log.txt",
-		os.O_APPEND|os.O_CREATE|os.O_WRONLY,
-		0600,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed opening key log file: %w", err)
-	}
+func New(config Config) (*Client, error) {
 
 	tlsConfig := &tls.Config{
-		// FIX: Actually check the domain name
-		InsecureSkipVerify: true,
+		ServerName:         config.Host,
 		MinVersion:         tls.VersionTLS13,
 		ClientSessionCache: tls.NewLRUClientSessionCache(100),
-		KeyLogWriter:       keyLogFile,
 		NextProtos:         []string{"doq"},
 	}
 
-	udpAddr, err := net.ResolveUDPAddr("udp", "0.0.0.0:6000")
-	if err != nil {
-		return nil, fmt.Errorf("failed to resolve target address: %w", err)
-	}
-	targetAddr, err := net.ResolveUDPAddr("udp", target)
+	targetAddr, err := net.ResolveUDPAddr("udp", net.JoinHostPort(config.Host, config.Port))
 	if err != nil {
 		return nil, err
 	}
-	udpConn, err := net.ListenUDP("udp", udpAddr)
+	udpConn, err := net.ListenUDP("udp", nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to target address: %w", err)
 	}
@@ -63,13 +53,11 @@ func New(target string) (*Client, error) {
 	}
 
 	quicConfig := quic.Config{
-		// Use the default value of 30 seconds
 		MaxIdleTimeout: 30 * time.Second,
 	}
 
 	return &Client{
 		targetAddr:    targetAddr,
-		keyLogFile:    keyLogFile,
 		tlsConfig:     tlsConfig,
 		udpConn:       udpConn,
 		quicConn:      nil,
@@ -79,9 +67,6 @@ func New(target string) (*Client, error) {
 }
 
 func (c *Client) Close() {
-	if c.keyLogFile != nil {
-		c.keyLogFile.Close()
-	}
 	if c.udpConn != nil {
 		c.udpConn.Close()
 	}
@@ -97,18 +82,24 @@ func (c *Client) OpenConnection() error {
 	return nil
 }
 
-func (c *Client) Query(domain, queryType string, dnssec bool) error {
+func (c *Client) Query(domain string, queryType uint16) (*dns.Msg, error) {
 
 	if c.quicConn == nil {
 		err := c.OpenConnection()
 		if err != nil {
-			return err
+			return nil, err
 		}
 	}
 
-	DNSMessage, err := do53.NewDNSMessage(domain, queryType)
+	// Prepare DNS message
+	msg := new(dns.Msg)
+	msg.SetQuestion(dns.Fqdn(domain), queryType)
+	msg.Id = dns.Id()
+	msg.RecursionDesired = true
+
+	packed, err := msg.Pack()
 	if err != nil {
-		return err
+		return nil, fmt.Errorf("doq: failed to pack message: %w", err)
 	}
 
 	var quicStream quic.Stream
@@ -116,27 +107,27 @@ func (c *Client) Query(domain, queryType string, dnssec bool) error {
 	if err != nil {
 		err = c.OpenConnection()
 		if err != nil {
-			return err
+			return nil, err
 		}
 		quicStream, err = c.quicConn.OpenStream()
 		if err != nil {
-			return err
+			return nil, err
 		}
 	}
 
 	var lengthPrefixedMessage bytes.Buffer
-	err = binary.Write(&lengthPrefixedMessage, binary.BigEndian, uint16(len(DNSMessage)))
+	err = binary.Write(&lengthPrefixedMessage, binary.BigEndian, uint16(len(packed)))
 	if err != nil {
-		return fmt.Errorf("failed to write message length: %w", err)
+		return nil, fmt.Errorf("failed to write message length: %w", err)
 	}
-	_, err = lengthPrefixedMessage.Write(DNSMessage)
+	_, err = lengthPrefixedMessage.Write(packed)
 	if err != nil {
-		return fmt.Errorf("failed to write DNS message: %w", err)
+		return nil, fmt.Errorf("failed to write DNS message: %w", err)
 	}
 
 	_, err = quicStream.Write(lengthPrefixedMessage.Bytes())
 	if err != nil {
-		return fmt.Errorf("failed writing to QUIC stream: %w", err)
+		return nil, fmt.Errorf("failed writing to QUIC stream: %w", err)
 	}
 	// Indicate that no further data will be written from this side
 	quicStream.Close()
@@ -144,32 +135,25 @@ func (c *Client) Query(domain, queryType string, dnssec bool) error {
 	lengthBuf := make([]byte, 2)
 	_, err = io.ReadFull(quicStream, lengthBuf)
 	if err != nil {
-		return fmt.Errorf("failed reading response length: %w", err)
+		return nil, fmt.Errorf("failed reading response length: %w", err)
 	}
 
 	messageLength := binary.BigEndian.Uint16(lengthBuf)
 	if messageLength == 0 {
-		return fmt.Errorf("received zero-length message")
+		return nil, fmt.Errorf("received zero-length message")
 	}
 
 	responseBuf := make([]byte, messageLength)
 	_, err = io.ReadFull(quicStream, responseBuf)
 	if err != nil {
-		return fmt.Errorf("failed reading response data: %w", err)
+		return nil, fmt.Errorf("failed reading response data: %w", err)
 	}
 
 	recvMsg := new(dns.Msg)
 	err = recvMsg.Unpack(responseBuf)
 	if err != nil {
-		return fmt.Errorf("failed to parse DNS response: %w", err)
+		return nil, fmt.Errorf("failed to parse DNS response: %w", err)
 	}
 
-	// TODO: Check if the response had no errors or TD bit set
-
-	fmt.Println(c.quicConn.ConnectionState().Used0RTT)
-	for _, answer := range recvMsg.Answer {
-		fmt.Println(answer.String())
-	}
-
-	return nil
+	return recvMsg, nil
 }

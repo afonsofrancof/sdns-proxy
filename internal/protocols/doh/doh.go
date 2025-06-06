@@ -10,8 +10,11 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/miekg/dns"
+	"github.com/quic-go/quic-go"
+	"github.com/quic-go/quic-go/http3"
 )
 
 const dnsMessageContentType = "application/dns-message"
@@ -21,6 +24,7 @@ type Config struct {
 	Port   string
 	Path   string
 	DNSSEC bool
+	HTTP3 bool
 }
 
 type Client struct {
@@ -31,7 +35,7 @@ type Client struct {
 
 func New(config Config) (*Client, error) {
 	if config.Host == "" || config.Port == "" || config.Path == "" {
-		fmt.Printf("%v,%v,%v", config.Host,config.Port,config.Path)
+		fmt.Printf("%v,%v,%v", config.Host, config.Port, config.Path)
 		return nil, errors.New("doh: host, port, and path must not be empty")
 	}
 
@@ -46,13 +50,28 @@ func New(config Config) (*Client, error) {
 	}
 
 	tlsConfig := &tls.Config{
-		ServerName: config.Host,
-		MinVersion: tls.VersionTLS12,
+		ServerName:         config.Host,
+		ClientSessionCache: tls.NewLRUClientSessionCache(100),
 	}
 
-	transport := &http.Transport{
-		TLSClientConfig:   tlsConfig,
-		ForceAttemptHTTP2: true,
+	quicConfig := &quic.Config{
+		MaxIdleTimeout: 30 * time.Second,
+	}
+
+
+	var transport http.RoundTripper
+	if config.HTTP3 {
+		tlsConfig = http3.ConfigureTLSConfig(tlsConfig)
+		transport = &http3.Transport{
+			TLSClientConfig: tlsConfig,
+			QUICConfig: quicConfig,
+		}
+	} else {
+		tlsConfig.MinVersion = tls.VersionTLS12
+		transport = &http.Transport{
+			TLSClientConfig:   tlsConfig,
+			ForceAttemptHTTP2: true,
+		}
 	}
 
 	httpClient := &http.Client{
@@ -66,9 +85,12 @@ func New(config Config) (*Client, error) {
 	}, nil
 }
 
-// Close cleans up idle connections held by the underlying HTTP transport.
 func (c *Client) Close() {
-	c.httpClient.CloseIdleConnections()
+	if t, ok := c.httpClient.Transport.(*http.Transport); ok {
+		t.CloseIdleConnections()
+	} else if t3, ok := c.httpClient.Transport.(*http3.Transport); ok {
+		t3.CloseIdleConnections()
+	}
 }
 
 func (c *Client) Query(domain string, queryType uint16) (*dns.Msg, error) {
@@ -86,12 +108,12 @@ func (c *Client) Query(domain string, queryType uint16) (*dns.Msg, error) {
 		return nil, fmt.Errorf("doh: failed to pack DNS message: %w", err)
 	}
 
-	httpReq, err := http.NewRequest("POST", c.upstreamURL.String(), bytes.NewReader(packedMsg))
+	httpReq, err := http.NewRequest(http.MethodPost, c.upstreamURL.String(), bytes.NewReader(packedMsg))
 	if err != nil {
 		return nil, fmt.Errorf("doh: failed to create HTTP request object: %w", err)
 	}
 
-	httpReq.Header.Set("User-Agent", "sdns-perf")
+	httpReq.Header.Set("User-Agent", "sdns-proxy")
 	httpReq.Header.Set("Content-Type", dnsMessageContentType)
 	httpReq.Header.Set("Accept", dnsMessageContentType)
 
