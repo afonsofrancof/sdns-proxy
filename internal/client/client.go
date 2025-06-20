@@ -6,10 +6,10 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/afonsofrancof/sdns-proxy/internal/protocols/do53"
-	"github.com/afonsofrancof/sdns-proxy/internal/protocols/doh"
-	"github.com/afonsofrancof/sdns-proxy/internal/protocols/doq"
-	"github.com/afonsofrancof/sdns-proxy/internal/protocols/dot"
+	"github.com/afonsofrancof/sdns-proxy/common/protocols/do53"
+	"github.com/afonsofrancof/sdns-proxy/common/protocols/doh"
+	"github.com/afonsofrancof/sdns-proxy/common/protocols/doq"
+	"github.com/afonsofrancof/sdns-proxy/common/protocols/dot"
 	"github.com/miekg/dns"
 )
 
