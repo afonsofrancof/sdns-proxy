@@ -17,7 +17,7 @@ SERVERS=(
     -s "tls://dns.adguard-dns.com:853"
     -s "https://dns.google/dns-query"
     -s "https://cloudflare-dns.com/dns-query"
-    -s "https://dns.quad9.net/dns-query"
+    -s "https://dns10.quad9.net/dns-query"
     -s "https://dns.adguard-dns.com/dns-query"
     -s "doq://dns.adguard-dns.com:853"
 )
