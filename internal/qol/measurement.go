@@ -75,8 +75,8 @@ func (r *MeasurementRunner) runMeasurement(upstream string, domains []string, qT
 
 	// Setup output files
 	jsonPath, pcapPath := GenerateOutputPaths(r.config.OutputDir, upstream, r.config.DNSSEC)
-	
-	fmt.Printf(">>> Measuring %s (dnssec=%v) → %s\n", upstream, r.config.DNSSEC, 
+
+	fmt.Printf(">>> Measuring %s (dnssec=%v) → %s\n", upstream, r.config.DNSSEC,
 		strings.TrimSuffix(strings.TrimSuffix(jsonPath, ".jsonl"), r.config.OutputDir+"/"))
 
 	// Setup packet capture
@@ -127,6 +127,8 @@ func (r *MeasurementRunner) runQueries(dnsClient client.DNSClient, upstream stri
 
 		if metric.ResponseCode == "ERROR" {
 			failureCount++
+		} else if metric.ResponseCode == "NOERROR" {
+			failureCount = 0
 		}
 
 		if err := writer.WriteMetric(metric); err != nil {
@@ -222,8 +224,8 @@ func (r *MeasurementRunner) readDomainsFile() ([]string, error) {
 func (r *MeasurementRunner) checkCapturePermissions() error {
 	handle, err := pcap.OpenLive("any", 65535, false, time.Millisecond*100)
 	if err != nil {
-		if strings.Contains(err.Error(), "permission") || 
-		   strings.Contains(err.Error(), "Operation not permitted") {
+		if strings.Contains(err.Error(), "permission") ||
+			strings.Contains(err.Error(), "Operation not permitted") {
 			return fmt.Errorf("insufficient permissions for packet capture")
 		}
 		return nil
