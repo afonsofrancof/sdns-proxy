@@ -4,8 +4,10 @@ go 1.24.0
 
 require (
 	github.com/alecthomas/kong v1.8.1
+	github.com/google/gopacket v1.1.19
 	github.com/miekg/dns v1.1.63
 	github.com/quic-go/quic-go v0.50.0
+	golang.org/x/net v0.35.0
 )
 
 require (
@@ -17,7 +19,6 @@ require (
 	golang.org/x/crypto v0.33.0 // indirect
 	golang.org/x/exp v0.0.0-20240506185415-9bf2ced13842 // indirect
 	golang.org/x/mod v0.18.0 // indirect
-	golang.org/x/net v0.35.0 // indirect
 	golang.org/x/sync v0.11.0 // indirect
 	golang.org/x/sys v0.30.0 // indirect
 	golang.org/x/text v0.22.0 // indirect
