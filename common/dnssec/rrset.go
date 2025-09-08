@@ -19,9 +19,9 @@ package dnssec
 // OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 import (
-	"log"
 	"time"
 
+	"github.com/afonsofrancof/sdns-proxy/common/logger"
 	"github.com/miekg/dns"
 )
 
@@ -65,7 +65,7 @@ func (r *RRSet) ValidateSignature(key *dns.DNSKEY) error {
 
 	err := r.RRSig.Verify(key, r.RRs)
 	if err != nil {
-		log.Printf("RRSIG verification failed: %v", err)
+		logger.Debug("RRSIG verification failed: %v", err)
 		return ErrRrsigValidationError
 	}
 

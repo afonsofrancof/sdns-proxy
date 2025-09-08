@@ -8,6 +8,7 @@ import (
 	"net"
 	"time"
 
+	"github.com/afonsofrancof/sdns-proxy/common/logger"
 	"github.com/miekg/dns"
 )
 
@@ -27,7 +28,10 @@ type Client struct {
 }
 
 func New(config Config) (*Client, error) {
+	logger.Debug("Creating DoT client: %s:%s", config.Host, config.Port)
+	
 	if config.Host == "" {
+		logger.Error("DoT client creation failed: empty host")
 		return nil, fmt.Errorf("dot: Host cannot be empty")
 	}
 	if config.WriteTimeout <= 0 {
@@ -43,6 +47,8 @@ func New(config Config) (*Client, error) {
 		ServerName: config.Host,
 	}
 
+	logger.Debug("DoT client created: %s (DNSSEC: %v)", hostAndPort, config.DNSSEC)
+
 	return &Client{
 		hostAndPort: hostAndPort,
 		tlsConfig:   tlsConfig,
@@ -51,6 +57,7 @@ func New(config Config) (*Client, error) {
 }
 
 func (c *Client) Close() {
+	logger.Debug("Closing DoT client")
 }
 
 func (c *Client) createConnection() (*tls.Conn, error) {
@@ -58,10 +65,23 @@ func (c *Client) createConnection() (*tls.Conn, error) {
 		Timeout: c.config.WriteTimeout,
 	}
 
-	return tls.DialWithDialer(dialer, "tcp", c.hostAndPort, c.tlsConfig)
+	logger.Debug("Establishing DoT connection to %s", c.hostAndPort)
+	conn, err := tls.DialWithDialer(dialer, "tcp", c.hostAndPort, c.tlsConfig)
+	if err != nil {
+		logger.Error("DoT connection failed to %s: %v", c.hostAndPort, err)
+		return nil, err
+	}
+	
+	logger.Debug("DoT connection established to %s", c.hostAndPort)
+	return conn, nil
 }
 
 func (c *Client) Query(msg *dns.Msg) (*dns.Msg, error) {
+	if len(msg.Question) > 0 {
+		question := msg.Question[0]
+		logger.Debug("DoT query: %s %s to %s", question.Name, dns.TypeToString[question.Qtype], c.hostAndPort)
+	}
+
 	// Create connection for this query
 	conn, err := c.createConnection()
 	if err != nil {
@@ -75,6 +95,7 @@ func (c *Client) Query(msg *dns.Msg) (*dns.Msg, error) {
 	}
 	packed, err := msg.Pack()
 	if err != nil {
+		logger.Error("DoT failed to pack message: %v", err)
 		return nil, fmt.Errorf("dot: failed to pack message: %w", err)
 	}
 
@@ -85,39 +106,50 @@ func (c *Client) Query(msg *dns.Msg) (*dns.Msg, error) {
 
 	// Write query
 	if err := conn.SetWriteDeadline(time.Now().Add(c.config.WriteTimeout)); err != nil {
+		logger.Error("DoT failed to set write deadline: %v", err)
 		return nil, fmt.Errorf("dot: failed to set write deadline: %w", err)
 	}
 
 	if _, err := conn.Write(data); err != nil {
+		logger.Error("DoT failed to write message to %s: %v", c.hostAndPort, err)
 		return nil, fmt.Errorf("dot: failed to write message: %w", err)
 	}
 
 	// Read response
 	if err := conn.SetReadDeadline(time.Now().Add(c.config.ReadTimeout)); err != nil {
+		logger.Error("DoT failed to set read deadline: %v", err)
 		return nil, fmt.Errorf("dot: failed to set read deadline: %w", err)
 	}
 
 	// Read message length
 	lengthBuf := make([]byte, 2)
 	if _, err := io.ReadFull(conn, lengthBuf); err != nil {
+		logger.Error("DoT failed to read response length from %s: %v", c.hostAndPort, err)
 		return nil, fmt.Errorf("dot: failed to read response length: %w", err)
 	}
 
 	msgLen := binary.BigEndian.Uint16(lengthBuf)
 	if msgLen > dns.MaxMsgSize {
+		logger.Error("DoT response too large from %s: %d bytes", c.hostAndPort, msgLen)
 		return nil, fmt.Errorf("dot: response message too large: %d", msgLen)
 	}
 
 	// Read message body
 	buffer := make([]byte, msgLen)
 	if _, err := io.ReadFull(conn, buffer); err != nil {
+		logger.Error("DoT failed to read response from %s: %v", c.hostAndPort, err)
 		return nil, fmt.Errorf("dot: failed to read response: %w", err)
 	}
 
 	// Parse response
 	response := new(dns.Msg)
 	if err := response.Unpack(buffer); err != nil {
+		logger.Error("DoT failed to unpack response from %s: %v", c.hostAndPort, err)
 		return nil, fmt.Errorf("dot: failed to unpack response: %w", err)
+	}
+
+	if len(response.Answer) > 0 {
+		logger.Debug("DoT response from %s: %d answers", c.hostAndPort, len(response.Answer))
 	}
 
 	return response, nil

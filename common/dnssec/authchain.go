@@ -20,9 +20,9 @@ package dnssec
 
 import (
 	"fmt"
-	"log"
 	"strings"
 
+	"github.com/afonsofrancof/sdns-proxy/common/logger"
 	"github.com/miekg/dns"
 )
 
@@ -57,13 +57,13 @@ func (ac *AuthenticationChain) Populate(domainName string, queryFunc func(string
 		zones = append(zones, zone)
 	}
 
-	log.Printf("Building DNSSEC chain for zones: %v", zones)
+	logger.Debug("Building DNSSEC chain for zones: %v", zones)
 
 	ac.DelegationChain = make([]SignedZone, 0, len(zones))
 
 	// Query each zone from root down
 	for i, zoneName := range zones {
-		log.Printf("Querying zone: %s", zoneName)
+		logger.Debug("Querying zone: %s", zoneName)
 
 		delegation, err := ac.queryDelegation(zoneName, queryFunc)
 		if err != nil {
@@ -91,13 +91,13 @@ func (ac *AuthenticationChain) queryDelegation(domainName string, queryFunc func
 	}
 	signedZone.DNSKey = dnskeyRRset
 
-	log.Printf("Found %d DNSKEY records for %s", len(dnskeyRRset.RRs), domainName)
+	logger.Debug("Found %d DNSKEY records for %s", len(dnskeyRRset.RRs), domainName)
 
 	// Populate public key lookup
 	for _, rr := range signedZone.DNSKey.RRs {
 		if dnskey, ok := rr.(*dns.DNSKEY); ok {
 			signedZone.AddPubKey(dnskey)
-			log.Printf("Added DNSKEY for %s: keytag=%d, flags=%d, algorithm=%d", domainName, dnskey.KeyTag(), dnskey.Flags, dnskey.Algorithm)
+			logger.Debug("Added DNSKEY for %s: keytag=%d, flags=%d, algorithm=%d", domainName, dnskey.KeyTag(), dnskey.Flags, dnskey.Algorithm)
 		}
 	}
 
@@ -106,17 +106,17 @@ func (ac *AuthenticationChain) queryDelegation(domainName string, queryFunc func
 		dsRRset, _ := ac.queryRRset(domainName, dns.TypeDS, queryFunc)
 		signedZone.DS = dsRRset
 		if dsRRset != nil && len(dsRRset.RRs) > 0 {
-			log.Printf("Found %d DS records for %s", len(dsRRset.RRs), domainName)
+			logger.Debug("Found %d DS records for %s", len(dsRRset.RRs), domainName)
 			for _, rr := range dsRRset.RRs {
 				if ds, ok := rr.(*dns.DS); ok {
-					log.Printf("DS record for %s: keytag=%d", domainName, ds.KeyTag)
+					logger.Debug("DS record for %s: keytag=%d", domainName, ds.KeyTag)
 				}
 			}
 		}
 	} else {
 		// Root zone has no DS records - trusted by default
 		signedZone.DS = NewRRSet()
-		log.Printf("Root zone - no DS records, trusted by default")
+		logger.Debug("Root zone - no DS records, trusted by default")
 	}
 
 	return signedZone, nil
@@ -125,12 +125,12 @@ func (ac *AuthenticationChain) queryDelegation(domainName string, queryFunc func
 func (ac *AuthenticationChain) queryRRset(qname string, qtype uint16, queryFunc func(string, uint16) (*dns.Msg, error)) (*RRSet, error) {
 	r, err := queryFunc(qname, qtype)
 	if err != nil {
-		log.Printf("cannot lookup %v", err)
+		logger.Debug("cannot lookup %v", err)
 		return NewRRSet(), nil // Return empty RRSet instead of nil
 	}
 
 	if r.Rcode == dns.RcodeNameError {
-		log.Printf("no such domain %s", qname)
+		logger.Debug("no such domain %s", qname)
 		return NewRRSet(), nil // Return empty RRSet instead of nil
 	}
 
@@ -167,60 +167,60 @@ func (ac *AuthenticationChain) Verify(answerRRset *RRSet) error {
 	// Verify the answer RRset against target zone's keys
 	err := targetZone.VerifyRRSIG(answerRRset)
 	if err != nil {
-		log.Printf("Answer RRSIG verification failed: %v", err)
+		logger.Debug("Answer RRSIG verification failed: %v", err)
 		return ErrInvalidRRsig
 	}
 
 	// Validate the chain from root down
 	for _, zone := range ac.DelegationChain {
-		log.Printf("Validating zone: %s", zone.Zone)
+		logger.Debug("Validating zone: %s", zone.Zone)
 
 		// Verify DNSKEY RRset signature
 		if !zone.HasDNSKeys() {
-			log.Printf("No DNSKEYs for zone %s", zone.Zone)
+			logger.Debug("No DNSKEYs for zone %s", zone.Zone)
 			return ErrDnskeyNotAvailable
 		}
 
 		err := zone.VerifyRRSIG(zone.DNSKey)
 		if err != nil {
-			log.Printf("DNSKEY validation failed for %s: %v", zone.Zone, err)
+			logger.Debug("DNSKEY validation failed for %s: %v", zone.Zone, err)
 			return ErrRrsigValidationError
 		}
 
 		// Skip ALL validation for root - just trust it
 		if zone.Zone == "." {
-			log.Printf("Root zone - trusted by default, no validation performed")
+			logger.Debug("Root zone - trusted by default, no validation performed")
 			continue
 		}
 
 		// For non-root zones, validate DS records against parent zone
 		if zone.ParentZone == nil {
-			log.Printf("Non-root zone %s has no parent", zone.Zone)
+			logger.Debug("Non-root zone %s has no parent", zone.Zone)
 			return fmt.Errorf("non-root zone %s has no parent", zone.Zone)
 		}
 
 		if zone.DS == nil || zone.DS.IsEmpty() {
-			log.Printf("No DS records for zone %s", zone.Zone)
+			logger.Debug("No DS records for zone %s", zone.Zone)
 			return ErrDsNotAvailable
 		}
 
 		// Verify DS signature using parent's key
 		err = zone.ParentZone.VerifyRRSIG(zone.DS)
 		if err != nil {
-			log.Printf("DS signature validation failed for %s: %v", zone.Zone, err)
+			logger.Debug("DS signature validation failed for %s: %v", zone.Zone, err)
 			return ErrRrsigValidationError
 		}
 
 		// Verify DS matches this zone's DNSKEY
 		err = zone.VerifyDS(zone.DS.RRs)
 		if err != nil {
-			log.Printf("DS-DNSKEY validation failed for %s: %v", zone.Zone, err)
+			logger.Debug("DS-DNSKEY validation failed for %s: %v", zone.Zone, err)
 			return ErrDsInvalid
 		}
 
-		log.Printf("Zone %s validated successfully", zone.Zone)
+		logger.Debug("Zone %s validated successfully", zone.Zone)
 	}
 
-	log.Printf("DNSSEC validation successful for entire chain!")
+	logger.Debug("DNSSEC validation successful for entire chain!")
 	return nil
 }

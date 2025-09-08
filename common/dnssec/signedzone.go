@@ -19,9 +19,9 @@ package dnssec
 // OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 import (
-	"log"
 	"strings"
 
+	"github.com/afonsofrancof/sdns-proxy/common/logger"
 	"github.com/miekg/dns"
 )
 
@@ -61,7 +61,7 @@ func (z *SignedZone) VerifyRRSIG(signedRRset *RRSet) error {
 
 	key := z.LookupPubKey(signedRRset.RRSig.KeyTag)
 	if key == nil {
-		log.Printf("DNSKEY keytag %d not found in zone %s", signedRRset.RRSig.KeyTag, z.Zone)
+		logger.Debug("DNSKEY keytag %d not found in zone %s", signedRRset.RRSig.KeyTag, z.Zone)
 		return ErrDnskeyNotAvailable
 	}
 
@@ -69,36 +69,36 @@ func (z *SignedZone) VerifyRRSIG(signedRRset *RRSet) error {
 }
 
 func (z *SignedZone) VerifyDS(dsRRset []dns.RR) error {
-	log.Printf("Verifying DS for zone %s with %d DS records", z.Zone, len(dsRRset))
+	logger.Debug("Verifying DS for zone %s with %d DS records", z.Zone, len(dsRRset))
 	for _, rr := range dsRRset {
 		ds, ok := rr.(*dns.DS)
 		if !ok {
 			continue
 		}
 
-		log.Printf("Checking DS keytag %d, digestType %d", ds.KeyTag, ds.DigestType)
+		logger.Debug("Checking DS keytag %d, digestType %d", ds.KeyTag, ds.DigestType)
 
 		if ds.DigestType != dns.SHA256 {
-			log.Printf("Unknown digest type (%d) on DS RR", ds.DigestType)
+			logger.Debug("Unknown digest type (%d) on DS RR", ds.DigestType)
 			continue
 		}
 
 		parentDsDigest := strings.ToUpper(ds.Digest)
 		key := z.LookupPubKey(ds.KeyTag)
 		if key == nil {
-			log.Printf("DNSKEY keytag %d not found in zone %s", ds.KeyTag, z.Zone)
+			logger.Debug("DNSKEY keytag %d not found in zone %s", ds.KeyTag, z.Zone)
 			return ErrDnskeyNotAvailable
 		}
 
 		dsDigest := strings.ToUpper(key.ToDS(ds.DigestType).Digest)
-		log.Printf("Parent DS digest: %s, Computed digest: %s", parentDsDigest, dsDigest)
+		logger.Debug("Parent DS digest: %s, Computed digest: %s", parentDsDigest, dsDigest)
 		if parentDsDigest == dsDigest {
-			log.Printf("DS validation successful for keytag %d", ds.KeyTag)
+			logger.Debug("DS validation successful for keytag %d", ds.KeyTag)
 			return nil
 		}
 
-		log.Printf("DS does not match DNSKEY for keytag %d", ds.KeyTag)
+		logger.Debug("DS does not match DNSKEY for keytag %d", ds.KeyTag)
 	}
-	log.Printf("No matching DS found")
+	logger.Debug("No matching DS found")
 	return ErrDsInvalid
 }

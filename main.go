@@ -2,12 +2,11 @@ package main
 
 import (
 	"fmt"
-	"log"
-	"os"
 	"strings"
 	"time"
 
 	"github.com/afonsofrancof/sdns-proxy/client"
+	"github.com/afonsofrancof/sdns-proxy/common/logger"
 	"github.com/afonsofrancof/sdns-proxy/server"
 
 	"github.com/alecthomas/kong"
@@ -15,6 +14,7 @@ import (
 )
 
 var cli struct {
+	Debug  bool      `help:"Enable debug logging globally." short:"D" env:"DEBUG"`
 	Query  QueryCmd  `cmd:"" help:"Perform a DNS query (client mode)."`
 	Listen ListenCmd `cmd:"" help:"Run as a DNS listener/resolver (server mode)."`
 }
@@ -41,7 +41,7 @@ type ListenCmd struct {
 }
 
 func (q *QueryCmd) Run() error {
-	log.Printf("Querying %s for %s type %s (DNSSEC: %v, ValidateOnly: %v, StrictValidation: %v, Timeout: %v)\n",
+	logger.Info("Querying %s for %s type %s (DNSSEC: %v, ValidateOnly: %v, StrictValidation: %v, Timeout: %v)",
 		q.Server, q.DomainName, q.QueryType, q.DNSSEC, q.ValidateOnly, q.StrictValidation, q.Timeout)
 
 	opts := client.Options{
@@ -50,14 +50,17 @@ func (q *QueryCmd) Run() error {
 		StrictValidation: q.StrictValidation,
 	}
 
+	logger.Debug("Creating DNS client with options: %+v", opts)
 	dnsClient, err := client.New(q.Server, opts)
 	if err != nil {
+		logger.Error("Failed to create DNS client: %v", err)
 		return err
 	}
 	defer dnsClient.Close()
 
 	qTypeUint, ok := dns.StringToType[strings.ToUpper(q.QueryType)]
 	if !ok {
+		logger.Error("Invalid query type: %s", q.QueryType)
 		return fmt.Errorf("invalid query type: %s", q.QueryType)
 	}
 
@@ -67,11 +70,15 @@ func (q *QueryCmd) Run() error {
 	msg.Id = dns.Id()
 	msg.RecursionDesired = true
 
+	logger.Debug("Sending DNS query: ID=%d, Question=%s %s", msg.Id, q.DomainName, q.QueryType)
 	recvMsg, err := dnsClient.Query(msg)
 	if err != nil {
+		logger.Error("DNS query failed: %v", err)
 		return err
 	}
 
+	logger.Debug("Received DNS response: ID=%d, Rcode=%s, Answers=%d",
+		recvMsg.Id, dns.RcodeToString[recvMsg.Rcode], len(recvMsg.Answer))
 	printResponse(recvMsg.Question[0].Name, q.QueryType, recvMsg)
 	return nil
 }
@@ -87,15 +94,17 @@ func (l *ListenCmd) Run() error {
 		Verbose:   l.Verbose,
 	}
 
+	logger.Debug("Server config: %+v", config)
 	srv, err := server.New(config)
 	if err != nil {
+		logger.Error("Failed to create server: %v", err)
 		return fmt.Errorf("failed to create server: %w", err)
 	}
 
-	log.Printf("Starting DNS proxy server on %s", l.Address)
-	log.Printf("Upstream server: %v", l.Upstream)
-	log.Printf("Fallback server: %v", l.Fallback)
-	log.Printf("Bootstrap server: %v", l.Bootstrap)
+	logger.Info("Starting DNS proxy server on %s", l.Address)
+	logger.Info("Upstream server: %v", l.Upstream)
+	logger.Info("Fallback server: %v", l.Fallback)
+	logger.Info("Bootstrap server: %v", l.Bootstrap)
 
 	return srv.Start()
 }
@@ -153,15 +162,16 @@ func printResponse(domain, qtype string, msg *dns.Msg) {
 }
 
 func main() {
-	log.SetOutput(os.Stderr)
-	log.SetFlags(log.Ltime | log.Lshortfile)
-
 	kongCtx := kong.Parse(&cli,
 		kong.Name("sdns-proxy"),
 		kong.Description("A DNS client/server tool supporting multiple protocols."),
 		kong.UsageOnError(),
 		kong.ConfigureHelp(kong.HelpOptions{Compact: true, Summary: true}),
 	)
+
+	// Set global debug flag
+	logger.SetDebug(cli.Debug)
+	logger.Debug("Debug logging enabled")
 
 	err := kongCtx.Run()
 	kongCtx.FatalIfErrorf(err)
