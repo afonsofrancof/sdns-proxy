@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -77,13 +78,19 @@ func (r *MeasurementRunner) runMeasurement(upstream string, domains []string, qT
 	// Setup output files
 	csvPath, pcapPath := GenerateOutputPaths(r.config.OutputDir, upstream, r.config.DNSSEC, r.config.KeepAlive)
 
+	// Create directory if it doesn't exist
+	if err := os.MkdirAll(filepath.Dir(csvPath), 0755); err != nil {
+		return fmt.Errorf("failed to create output directory: %w", err)
+	}
+
 	keepAliveStr := ""
 	if r.config.KeepAlive {
 		keepAliveStr = " (keep-alive)"
 	}
 
-	fmt.Printf(">>> Measuring %s (dnssec=%v%s) → %s\n", upstream, r.config.DNSSEC, keepAliveStr,
-		strings.TrimSuffix(strings.TrimSuffix(csvPath, ".csv"), r.config.OutputDir+"/"))
+	// Show relative path for cleaner output
+	relPath, _ := filepath.Rel(r.config.OutputDir, csvPath)
+	fmt.Printf(">>> Measuring %s (dnssec=%v%s) → %s\n", upstream, r.config.DNSSEC, keepAliveStr, relPath)
 
 	// Setup packet capture
 	packetCapture, err := capture.NewPacketCapture(r.config.Interface, pcapPath)
