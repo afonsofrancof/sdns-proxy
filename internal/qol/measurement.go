@@ -20,6 +20,7 @@ type MeasurementConfig struct {
 	OutputDir   string
 	QueryType   string
 	DNSSEC      bool
+	KeepAlive   bool
 	Interface   string
 	Servers     []string
 }
@@ -74,9 +75,14 @@ func (r *MeasurementRunner) runMeasurement(upstream string, domains []string, qT
 	defer dnsClient.Close()
 
 	// Setup output files
-	jsonPath, pcapPath := GenerateOutputPaths(r.config.OutputDir, upstream, r.config.DNSSEC)
+	jsonPath, pcapPath := GenerateOutputPaths(r.config.OutputDir, upstream, r.config.DNSSEC, r.config.KeepAlive)
 
-	fmt.Printf(">>> Measuring %s (dnssec=%v) → %s\n", upstream, r.config.DNSSEC,
+	keepAliveStr := ""
+	if r.config.KeepAlive {
+		keepAliveStr = " (keep-alive)"
+	}
+
+	fmt.Printf(">>> Measuring %s (dnssec=%v%s) → %s\n", upstream, r.config.DNSSEC, keepAliveStr,
 		strings.TrimSuffix(strings.TrimSuffix(jsonPath, ".jsonl"), r.config.OutputDir+"/"))
 
 	// Setup packet capture
@@ -98,7 +104,10 @@ func (r *MeasurementRunner) runMeasurement(upstream string, domains []string, qT
 }
 
 func (r *MeasurementRunner) setupDNSClient(upstream string) (client.DNSClient, error) {
-	opts := client.Options{DNSSEC: r.config.DNSSEC}
+	opts := client.Options{
+		DNSSEC:    r.config.DNSSEC,
+		KeepAlive: r.config.KeepAlive,
+	}
 	return client.New(upstream, opts)
 }
 
@@ -136,7 +145,14 @@ func (r *MeasurementRunner) runQueries(dnsClient client.DNSClient, upstream stri
 		}
 
 		r.printQueryResult(metric)
-		time.Sleep(10 * time.Millisecond)
+
+		// For keep-alive connections, add smaller delays between queries
+		// to better utilize the persistent connection
+		if r.config.KeepAlive {
+			time.Sleep(5 * time.Millisecond)
+		} else {
+			time.Sleep(10 * time.Millisecond)
+		}
 	}
 
 	time.Sleep(100 * time.Millisecond)
@@ -154,6 +170,7 @@ func (r *MeasurementRunner) performQuery(dnsClient client.DNSClient, domain, ups
 		QueryType: r.config.QueryType,
 		Protocol:  proto,
 		DNSSEC:    r.config.DNSSEC,
+		KeepAlive: r.config.KeepAlive,
 		DNSServer: upstream,
 		Timestamp: time.Now(),
 	}
@@ -199,8 +216,14 @@ func (r *MeasurementRunner) printQueryResult(metric results.DNSMetric) {
 	if metric.ResponseCode == "ERROR" {
 		statusIcon = "✗"
 	}
-	fmt.Printf("%s %s [%s] %s %.2fms\n",
-		statusIcon, metric.Domain, metric.Protocol, metric.ResponseCode, metric.DurationMs)
+
+	keepAliveIndicator := ""
+	if metric.KeepAlive {
+		keepAliveIndicator = "⟷"
+	}
+
+	fmt.Printf("%s %s%s [%s] %s %.2fms\n",
+		statusIcon, metric.Domain, keepAliveIndicator, metric.Protocol, metric.ResponseCode, metric.DurationMs)
 }
 
 func (r *MeasurementRunner) readDomainsFile() ([]string, error) {

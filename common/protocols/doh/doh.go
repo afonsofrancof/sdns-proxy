@@ -22,12 +22,13 @@ import (
 const dnsMessageContentType = "application/dns-message"
 
 type Config struct {
-	Host   string
-	Port   string
-	Path   string
-	DNSSEC bool
-	HTTP3  bool
-	HTTP2  bool
+	Host      string
+	Port      string
+	Path      string
+	DNSSEC    bool
+	HTTP3     bool
+	HTTP2     bool
+	KeepAlive bool
 }
 
 type Client struct {
@@ -37,7 +38,7 @@ type Client struct {
 }
 
 func New(config Config) (*Client, error) {
-	logger.Debug("Creating DoH client: %s:%s%s", config.Host, config.Port, config.Path)
+	logger.Debug("Creating DoH client: %s:%s%s (KeepAlive: %v)", config.Host, config.Port, config.Path, config.KeepAlive)
 	
 	if config.Host == "" || config.Port == "" || config.Path == "" {
 		logger.Error("DoH client creation failed: missing required fields")
@@ -65,31 +66,58 @@ func New(config Config) (*Client, error) {
 		DisablePathMTUDiscovery: true,
 	}
 
-	transport := http.DefaultTransport.(*http.Transport)
-	transport.TLSClientConfig = tlsConfig
+	transport := &http.Transport{
+		TLSClientConfig: tlsConfig,
+		MaxIdleConns:    100,
+		IdleConnTimeout: 90 * time.Second,
+	}
+
+	// Configure connection pooling based on KeepAlive setting
+	if config.KeepAlive {
+		transport.MaxIdleConnsPerHost = 10
+		transport.MaxConnsPerHost = 10
+	} else {
+		transport.MaxIdleConns = 0
+		transport.MaxIdleConnsPerHost = 0
+		transport.DisableKeepAlives = true
+	}
+
 	httpClient := &http.Client{
 		Transport: transport,
+		Timeout:   30 * time.Second,
 	}
 
 	var transportType string
 	if config.HTTP2 {
-		httpClient.Transport = &http2.Transport{
+		http2Transport := &http2.Transport{
 			TLSClientConfig: tlsConfig,
 			AllowHTTP:       true,
 		}
+		
+		if !config.KeepAlive {
+			http2Transport.DisableCompression = true
+		}
+		
+		httpClient.Transport = http2Transport
 		transportType = "HTTP/2"
 	} else if config.HTTP3 {
 		quicTlsConfig := http3.ConfigureTLSConfig(tlsConfig)
-		httpClient.Transport = &http3.Transport{
+		http3Transport := &http3.Transport{
 			TLSClientConfig: quicTlsConfig,
 			QUICConfig:      quicConfig,
 		}
+		
+		if !config.KeepAlive {
+			http3Transport.DisableCompression = true
+		}
+		
+		httpClient.Transport = http3Transport
 		transportType = "HTTP/3"
 	} else {
 		transportType = "HTTP/1.1"
 	}
 
-	logger.Debug("DoH client created: %s (%s, DNSSEC: %v)", rawURL, transportType, config.DNSSEC)
+	logger.Debug("DoH client created: %s (%s, DNSSEC: %v, KeepAlive: %v)", rawURL, transportType, config.DNSSEC, config.KeepAlive)
 
 	return &Client{
 		httpClient:  httpClient,
@@ -102,6 +130,8 @@ func (c *Client) Close() {
 	logger.Debug("Closing DoH client")
 	if t, ok := c.httpClient.Transport.(*http.Transport); ok {
 		t.CloseIdleConnections()
+	} else if t2, ok := c.httpClient.Transport.(*http2.Transport); ok {
+		t2.CloseIdleConnections()
 	} else if t3, ok := c.httpClient.Transport.(*http3.Transport); ok {
 		t3.CloseIdleConnections()
 	}
@@ -132,6 +162,13 @@ func (c *Client) Query(msg *dns.Msg) (*dns.Msg, error) {
 	httpReq.Header.Set("User-Agent", "sdns-proxy")
 	httpReq.Header.Set("Content-Type", dnsMessageContentType)
 	httpReq.Header.Set("Accept", dnsMessageContentType)
+	
+	// Set Connection header based on KeepAlive setting
+	if c.config.KeepAlive {
+		httpReq.Header.Set("Connection", "keep-alive")
+	} else {
+		httpReq.Header.Set("Connection", "close")
+	}
 
 	httpResp, err := c.httpClient.Do(httpReq)
 	if err != nil {

@@ -30,6 +30,7 @@ type Options struct {
 	DNSSEC           bool
 	ValidateOnly     bool
 	StrictValidation bool
+	KeepAlive        bool // New flag for long-lived connections
 }
 
 // New creates a DNS client based on the upstream string
@@ -214,8 +215,8 @@ func getDefaultPath(scheme string) string {
 }
 
 func createClient(scheme, host, port, path string, opts Options) (DNSClient, error) {
-	logger.Debug("Creating client: scheme=%s, host=%s, port=%s, path=%s, DNSSEC=%v",
-		scheme, host, port, path, opts.DNSSEC)
+	logger.Debug("Creating client: scheme=%s, host=%s, port=%s, path=%s, DNSSEC=%v, KeepAlive=%v",
+		scheme, host, port, path, opts.DNSSEC, opts.KeepAlive)
 
 	switch scheme {
 	case "udp", "tcp", "do53", "":
@@ -228,40 +229,44 @@ func createClient(scheme, host, port, path string, opts Options) (DNSClient, err
 
 	case "http", "doh":
 		config := doh.Config{
-			Host:   host,
-			Port:   port,
-			Path:   path,
-			DNSSEC: opts.DNSSEC,
-			HTTP3:  false,
+			Host:      host,
+			Port:      port,
+			Path:      path,
+			DNSSEC:    opts.DNSSEC,
+			HTTP3:     false,
+			KeepAlive: opts.KeepAlive,
 		}
 		logger.Debug("Creating DoH client with config: %+v", config)
 		return doh.New(config)
 
 	case "https", "doh3":
 		config := doh.Config{
-			Host:   host,
-			Port:   port,
-			Path:   path,
-			DNSSEC: opts.DNSSEC,
-			HTTP3:  true,
+			Host:      host,
+			Port:      port,
+			Path:      path,
+			DNSSEC:    opts.DNSSEC,
+			HTTP3:     true,
+			KeepAlive: opts.KeepAlive,
 		}
 		logger.Debug("Creating DoH3 client with config: %+v", config)
 		return doh.New(config)
 
 	case "tls", "dot":
 		config := dot.Config{
-			Host:   host,
-			Port:   port,
-			DNSSEC: opts.DNSSEC,
+			Host:      host,
+			Port:      port,
+			DNSSEC:    opts.DNSSEC,
+			KeepAlive: opts.KeepAlive,
 		}
 		logger.Debug("Creating DoT client with config: %+v", config)
 		return dot.New(config)
 
 	case "doq": // DNS over QUIC
 		config := doq.Config{
-			Host:   host,
-			Port:   port,
-			DNSSEC: opts.DNSSEC,
+			Host:      host,
+			Port:      port,
+			DNSSEC:    opts.DNSSEC,
+			KeepAlive: opts.KeepAlive,
 		}
 		logger.Debug("Creating DoQ client with config: %+v", config)
 		return doq.New(config)

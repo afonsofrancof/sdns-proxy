@@ -26,6 +26,11 @@
             go
             gotools
             golangci-lint
+            (pkgs.python3.withPackages (python-pkgs: with python-pkgs; [
+              pandas
+              matplotlib
+              seaborn
+            ]))
           ];
         };
       });

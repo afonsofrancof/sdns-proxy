@@ -17,6 +17,7 @@ type RunCmd struct {
 	QueryType   string        `short:"t" long:"type" default:"A" help:"DNS query type"`
 	Timeout     time.Duration `long:"timeout" default:"5s" help:"Query timeout (informational)"`
 	DNSSEC      bool          `long:"dnssec" help:"Enable DNSSEC"`
+	KeepAlive   bool          `short:"k" long:"keep-alive" help:"Use persistent connections"`
 	Interface   string        `long:"iface" default:"any" help:"Capture interface (e.g., eth0, any)"`
 	Servers     []string      `short:"s" long:"server" help:"Upstream servers (udp://..., tls://..., https://..., doq://...)"`
 }
@@ -27,6 +28,7 @@ func (r *RunCmd) Run() error {
 		OutputDir:   r.OutputDir,
 		QueryType:   r.QueryType,
 		DNSSEC:      r.DNSSEC,
+		KeepAlive:   r.KeepAlive,
 		Interface:   r.Interface,
 		Servers:     r.Servers,
 	}

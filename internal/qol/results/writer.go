@@ -12,6 +12,7 @@ type DNSMetric struct {
 	QueryType    string    `json:"query_type"`
 	Protocol     string    `json:"protocol"`
 	DNSSEC       bool      `json:"dnssec"`
+	KeepAlive    bool      `json:"keep_alive"`
 	DNSServer    string    `json:"dns_server"`
 	Timestamp    time.Time `json:"timestamp"`
 	Duration     int64     `json:"duration_ns"`
@@ -22,6 +23,7 @@ type DNSMetric struct {
 	Error        string    `json:"error,omitempty"`
 }
 
+// Rest stays exactly the same
 type MetricsWriter struct {
 	encoder *json.Encoder
 	file    *os.File

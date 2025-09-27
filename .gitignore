@@ -15,3 +15,4 @@
 # vendor/
 
 **/tls-key-log.txt
+/results

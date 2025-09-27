@@ -26,6 +26,7 @@ type QueryCmd struct {
 	DNSSEC           bool          `help:"Enable DNSSEC (DO bit)." short:"d"`
 	ValidateOnly     bool          `help:"Only return DNSSEC validated responses." short:"V"`
 	StrictValidation bool          `help:"Fail on any DNSSEC validation error." short:"S"`
+	KeepAlive        bool          `help:"Use persistent connections." short:"k"`
 	Timeout          time.Duration `help:"Timeout for the query operation." default:"10s"`
 	KeyLogFile       string        `help:"Path to TLS key log file (for DoT/DoH/DoQ)." env:"SSLKEYLOGFILE"`
 }
@@ -36,18 +37,20 @@ type ListenCmd struct {
 	Fallback  string        `help:"Fallback DNS server (e.g., https://1.1.1.1/dns-query, tls://8.8.8.8)." short:"f"`
 	Bootstrap string        `help:"Bootstrap DNS server (must be an IP address, e.g., 8.8.8.8, 1.1.1.1)." short:"b"`
 	DNSSEC    bool          `help:"Enable DNSSEC for upstream queries." short:"d"`
+	KeepAlive bool          `help:"Use persistent connections to upstream servers." short:"k"`
 	Timeout   time.Duration `help:"Timeout for upstream queries." default:"5s"`
 	Verbose   bool          `help:"Enable verbose logging." short:"v"`
 }
 
 func (q *QueryCmd) Run() error {
-	logger.Info("Querying %s for %s type %s (DNSSEC: %v, ValidateOnly: %v, StrictValidation: %v, Timeout: %v)",
-		q.Server, q.DomainName, q.QueryType, q.DNSSEC, q.ValidateOnly, q.StrictValidation, q.Timeout)
+	logger.Info("Querying %s for %s type %s (DNSSEC: %v, ValidateOnly: %v, StrictValidation: %v, KeepAlive: %v, Timeout: %v)",
+		q.Server, q.DomainName, q.QueryType, q.DNSSEC, q.ValidateOnly, q.StrictValidation, q.KeepAlive, q.Timeout)
 
 	opts := client.Options{
 		DNSSEC:           q.DNSSEC,
 		ValidateOnly:     q.ValidateOnly,
 		StrictValidation: q.StrictValidation,
+		KeepAlive:        q.KeepAlive,
 	}
 
 	logger.Debug("Creating DNS client with options: %+v", opts)
@@ -90,6 +93,7 @@ func (l *ListenCmd) Run() error {
 		Fallback:  l.Fallback,
 		Bootstrap: l.Bootstrap,
 		DNSSEC:    l.DNSSEC,
+		KeepAlive: l.KeepAlive,
 		Timeout:   l.Timeout,
 		Verbose:   l.Verbose,
 	}
@@ -105,9 +109,11 @@ func (l *ListenCmd) Run() error {
 	logger.Info("Upstream server: %v", l.Upstream)
 	logger.Info("Fallback server: %v", l.Fallback)
 	logger.Info("Bootstrap server: %v", l.Bootstrap)
+	logger.Info("KeepAlive: %v", l.KeepAlive)
 
 	return srv.Start()
 }
+
 
 func printResponse(domain, qtype string, msg *dns.Msg) {
 	fmt.Println(";; QUESTION SECTION:")
