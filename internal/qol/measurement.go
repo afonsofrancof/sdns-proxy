@@ -75,7 +75,7 @@ func (r *MeasurementRunner) runMeasurement(upstream string, domains []string, qT
 	defer dnsClient.Close()
 
 	// Setup output files
-	jsonPath, pcapPath := GenerateOutputPaths(r.config.OutputDir, upstream, r.config.DNSSEC, r.config.KeepAlive)
+	csvPath, pcapPath := GenerateOutputPaths(r.config.OutputDir, upstream, r.config.DNSSEC, r.config.KeepAlive)
 
 	keepAliveStr := ""
 	if r.config.KeepAlive {
@@ -83,7 +83,7 @@ func (r *MeasurementRunner) runMeasurement(upstream string, domains []string, qT
 	}
 
 	fmt.Printf(">>> Measuring %s (dnssec=%v%s) → %s\n", upstream, r.config.DNSSEC, keepAliveStr,
-		strings.TrimSuffix(strings.TrimSuffix(jsonPath, ".jsonl"), r.config.OutputDir+"/"))
+		strings.TrimSuffix(strings.TrimSuffix(csvPath, ".csv"), r.config.OutputDir+"/"))
 
 	// Setup packet capture
 	packetCapture, err := capture.NewPacketCapture(r.config.Interface, pcapPath)
@@ -93,7 +93,7 @@ func (r *MeasurementRunner) runMeasurement(upstream string, domains []string, qT
 	defer packetCapture.Close()
 
 	// Setup results writer
-	writer, err := results.NewMetricsWriter(jsonPath)
+	writer, err := results.NewMetricsWriter(csvPath)
 	if err != nil {
 		return err
 	}

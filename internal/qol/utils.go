@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-func GenerateOutputPaths(outputDir, upstream string, dnssec, keepAlive bool) (jsonPath, pcapPath string) {
+func GenerateOutputPaths(outputDir, upstream string, dnssec, keepAlive bool) (csvPath, pcapPath string) {
 	proto := DetectProtocol(upstream)
 	serverName := ExtractServerName(upstream)
 	ts := time.Now().Format("20060102_1504")
@@ -18,8 +18,8 @@ func GenerateOutputPaths(outputDir, upstream string, dnssec, keepAlive bool) (js
 	base := fmt.Sprintf("%s_%s_dnssec_%s_keepalive_%s_%s",
 		proto, sanitize(serverName), dnssecStr, keepAliveStr, ts)
 
-	return filepath.Join(outputDir, base+".jsonl"),
-		filepath.Join(outputDir, base+".pcap")
+	return filepath.Join(outputDir, base+".csv"),
+		   filepath.Join(outputDir, base+".pcap")
 }
 
 func sanitize(s string) string {

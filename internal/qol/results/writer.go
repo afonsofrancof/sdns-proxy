@@ -1,9 +1,10 @@
 package results
 
 import (
-	"encoding/json"
+	"encoding/csv"
 	"fmt"
 	"os"
+	"strconv"
 	"time"
 )
 
@@ -23,29 +24,69 @@ type DNSMetric struct {
 	Error        string    `json:"error,omitempty"`
 }
 
-// Rest stays exactly the same
 type MetricsWriter struct {
-	encoder *json.Encoder
-	file    *os.File
+	writer *csv.Writer
+	file   *os.File
 }
 
 func NewMetricsWriter(path string) (*MetricsWriter, error) {
 	file, err := os.Create(path)
 	if err != nil {
-		return nil, fmt.Errorf("create json output: %w", err)
+		return nil, fmt.Errorf("create csv output: %w", err)
 	}
 
+	writer := csv.NewWriter(file)
+
+	// Write CSV header
+	header := []string{
+		"domain", "query_type", "protocol", "dnssec", "keep_alive",
+		"dns_server", "timestamp", "duration_ns", "duration_ms",
+		"request_size_bytes", "response_size_bytes", "response_code", "error",
+	}
+
+	if err := writer.Write(header); err != nil {
+		file.Close()
+		return nil, fmt.Errorf("write csv header: %w", err)
+	}
+
+	writer.Flush()
+
 	return &MetricsWriter{
-		encoder: json.NewEncoder(file),
-		file:    file,
+		writer: writer,
+		file:   file,
 	}, nil
 }
 
 func (mw *MetricsWriter) WriteMetric(metric DNSMetric) error {
-	return mw.encoder.Encode(metric)
+	record := []string{
+		metric.Domain,
+		metric.QueryType,
+		metric.Protocol,
+		strconv.FormatBool(metric.DNSSEC),
+		strconv.FormatBool(metric.KeepAlive),
+		metric.DNSServer,
+		metric.Timestamp.Format(time.RFC3339),
+		strconv.FormatInt(metric.Duration, 10),
+		strconv.FormatFloat(metric.DurationMs, 'f', 3, 64),
+		strconv.Itoa(metric.RequestSize),
+		strconv.Itoa(metric.ResponseSize),
+		metric.ResponseCode,
+		metric.Error,
+	}
+
+	err := mw.writer.Write(record)
+	if err != nil {
+		return err
+	}
+
+	mw.writer.Flush()
+	return mw.writer.Error()
 }
 
 func (mw *MetricsWriter) Close() error {
+	if mw.writer != nil {
+		mw.writer.Flush()
+	}
 	if mw.file != nil {
 		return mw.file.Close()
 	}
