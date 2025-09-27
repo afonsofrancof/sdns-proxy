@@ -227,7 +227,7 @@ func createClient(scheme, host, port, path string, opts Options) (DNSClient, err
 		logger.Debug("Creating DO53 client with config: %+v", config)
 		return do53.New(config)
 
-	case "http", "doh":
+	case "https", "doh":
 		config := doh.Config{
 			Host:      host,
 			Port:      port,
@@ -239,7 +239,7 @@ func createClient(scheme, host, port, path string, opts Options) (DNSClient, err
 		logger.Debug("Creating DoH client with config: %+v", config)
 		return doh.New(config)
 
-	case "https", "doh3":
+	case "doh3":
 		config := doh.Config{
 			Host:      host,
 			Port:      port,
