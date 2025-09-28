@@ -15,10 +15,10 @@ func GenerateOutputPaths(outputDir, upstream string, dnssec, keepAlive bool) (cs
 
 	// Create date-based subdirectory
 	date := time.Now().Format("2006-01-02")
-	timestamp := time.Now().Format("150405")
+	timestamp := time.Now().Format("150405") // HHMMSS for uniqueness
 
-	// Organize by date and server
-	subDir := filepath.Join(outputDir, date, cleanServer)
+	// Organize hierarchically: resolver/date/filename
+	subDir := filepath.Join(outputDir, cleanServer, date)
 
 	// Create simple filename
 	base := proto
@@ -44,7 +44,7 @@ func GenerateOutputPaths(outputDir, upstream string, dnssec, keepAlive bool) (cs
 }
 
 func cleanServerName(server string) string {
-	// Map common servers to short names
+	// Map common servers to readable names
 	serverMap := map[string]string{
 		"1.1.1.1":               "cloudflare",
 		"1.0.0.1":               "cloudflare",
@@ -57,20 +57,22 @@ func cleanServerName(server string) string {
 		"9.9.9.9":               "quad9",
 		"149.112.112.112":       "quad9",
 		"dns.quad9.net":         "quad9",
+		"dns10.quad9.net":       "quad9",
 		"208.67.222.222":        "opendns",
 		"208.67.220.220":        "opendns",
 		"resolver1.opendns.com": "opendns",
 		"94.140.14.14":          "adguard",
 		"94.140.15.15":          "adguard",
 		"dns.adguard.com":       "adguard",
+		"dns.adguard-dns.com":   "adguard",
 	}
 
 	// Clean the server name first
 	cleaned := strings.ToLower(server)
 	cleaned = strings.TrimPrefix(cleaned, "https://")
 	cleaned = strings.TrimPrefix(cleaned, "http://")
-	cleaned = strings.Split(cleaned, "/")[0] // Remove path
-	cleaned = strings.Split(cleaned, ":")[0] // Remove port
+	cleaned = strings.Split(cleaned, "/")[0]
+	cleaned = strings.Split(cleaned, ":")[0]
 
 	// Check if we have a mapping
 	if shortName, exists := serverMap[cleaned]; exists {

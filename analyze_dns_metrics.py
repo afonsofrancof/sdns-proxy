@@ -17,7 +17,7 @@ def map_server_to_resolver(server):
     elif 'adguard' in server_lower:
         return 'AdGuard'
     else:
-        return server  # Fallback to original server name
+        return server
 
 def extract_from_new_format(filename):
     """Parse new filename format: protocol[-flags]-timestamp.csv"""
@@ -41,10 +41,10 @@ def extract_server_info(file_path, dns_server_field):
     """Extract info using directory structure and filename"""
     path = Path(file_path)
     
-    # Expect structure like: results/date/server/filename.csv
+    # Expect structure like: results/resolver/date/filename.csv
     parts = path.parts
-    if len(parts) >= 3 and parts[-3].isdigit() and len(parts[-3]) == 10:  # date folder like 2024-03-01
-        server = parts[-2]  # server folder
+    if len(parts) >= 3 and parts[-2].isdigit() and len(parts[-2]) == 10:  # date folder like 2024-03-01
+        server = parts[-3]  # resolver folder (e.g., cloudflare)
         filename = parts[-1]
         
         protocol, dnssec_status, keepalive_status = extract_from_new_format(filename)
