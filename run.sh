@@ -60,15 +60,14 @@ for ((i=0; i<${#COMBINATIONS[@]}; i++)); do
     # Generate a unique timestamp for this run (YYYYMMDD_HHMMSS)
     TIMESTAMP=$(date '+%Y%m%d_%H%M%S')
 
-    OUTPUT_PATH="${OUTPUT_DIR}/run_${TIMESTAMP}"
 
-    echo "Running combination: $FLAGS (output: $OUTPUT_PATH)"
+    echo "Running combination: $FLAGS (output: $OUTPUT_DIR)"
 
     # Convert FLAGS string to array (split by space)
     FLAGS_ARRAY=($FLAGS)
 
     sudo "$TOOL_PATH" run \
-        --output-dir "$OUTPUT_PATH" \
+        --output-dir "$OUTPUT_DIR" \
         "${COMMON_ARGS[@]}" \
         "${FLAGS_ARRAY[@]}"
     
