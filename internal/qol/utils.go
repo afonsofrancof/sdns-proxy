@@ -15,7 +15,7 @@ func GenerateOutputPaths(outputDir, upstream string, dnssec, keepAlive bool) (cs
 
 	// Create date-based subdirectory
 	date := time.Now().Format("2006-01-02")
-	timestamp := time.Now().Format("150405") // HHMMSS for uniqueness
+	timestamp := time.Now().Format("150405")
 
 	// Organize hierarchically: resolver/date/filename
 	subDir := filepath.Join(outputDir, cleanServer, date)
@@ -67,56 +67,20 @@ func cleanServerName(server string) string {
 		"dns.adguard-dns.com":   "adguard",
 	}
 
-	// Clean the server name first
-	cleaned := strings.ToLower(server)
-	cleaned = strings.TrimPrefix(cleaned, "https://")
-	cleaned = strings.TrimPrefix(cleaned, "http://")
-	cleaned = strings.Split(cleaned, "/")[0]
-	cleaned = strings.Split(cleaned, ":")[0]
+	serverName := ""
+	cleanedUrl, err := url.Parse(server)
+	if err != nil {
+		serverName = server
+	} else {
+		serverName = cleanedUrl.Hostname()
+	}
 
 	// Check if we have a mapping
-	if shortName, exists := serverMap[cleaned]; exists {
+	if shortName, exists := serverMap[serverName]; exists {
 		return shortName
 	}
 
-	// For unknown servers, create a reasonable short name
-	parts := strings.Split(cleaned, ".")
-	if len(parts) >= 2 {
-		// For domains like dns.example.com, take "example"
-		if len(parts) >= 3 {
-			return parts[len(parts)-2] // Second to last part
-		}
-		// For IPs or simple domains, take first part
-		return parts[0]
-	}
-
-	return sanitizeShort(cleaned)
-}
-
-func sanitizeShort(s string) string {
-	// Keep only alphanumeric and dash
-	var result strings.Builder
-	for _, r := range s {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
-			result.WriteRune(r)
-		} else if r == '.' || r == '_' || r == '-' {
-			result.WriteRune('-')
-		}
-	}
-
-	cleaned := result.String()
-	// Remove consecutive dashes and trim
-	for strings.Contains(cleaned, "--") {
-		cleaned = strings.ReplaceAll(cleaned, "--", "-")
-	}
-	cleaned = strings.Trim(cleaned, "-")
-
-	// Limit length
-	if len(cleaned) > 15 {
-		cleaned = cleaned[:15]
-	}
-
-	return cleaned
+	return serverName
 }
 
 func DetectProtocol(upstream string) string {
