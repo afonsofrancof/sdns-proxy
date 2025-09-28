@@ -20,37 +20,40 @@ var cli struct {
 }
 
 type QueryCmd struct {
-	DomainName       string        `help:"Domain name to resolve." arg:"" required:""`
-	Server           string        `help:"Upstream server address (e.g., https://1.1.1.1/dns-query, tls://1.1.1.1, 8.8.8.8)." short:"s" required:""`
-	QueryType        string        `help:"Query type (A, AAAA, MX, TXT, etc.)." short:"t" enum:"A,AAAA,MX,TXT,NS,CNAME,SOA,PTR,DNSKEY" default:"A"`
-	DNSSEC           bool          `help:"Enable DNSSEC (DO bit)." short:"d"`
-	ValidateOnly     bool          `help:"Only return DNSSEC validated responses." short:"V"`
-	StrictValidation bool          `help:"Fail on any DNSSEC validation error." short:"S"`
-	KeepAlive        bool          `help:"Use persistent connections." short:"k"`
-	Timeout          time.Duration `help:"Timeout for the query operation." default:"10s"`
-	KeyLogFile       string        `help:"Path to TLS key log file (for DoT/DoH/DoQ)." env:"SSLKEYLOGFILE"`
+	DomainName          string        `help:"Domain name to resolve." arg:"" required:""`
+	Server              string        `help:"Upstream server address (e.g., https://1.1.1.1/dns-query, tls://1.1.1.1, 8.8.8.8)." short:"s" required:""`
+	QueryType           string        `help:"Query type (A, AAAA, MX, TXT, etc.)." short:"t" enum:"A,AAAA,MX,TXT,NS,CNAME,SOA,PTR,DNSKEY" default:"A"`
+	DNSSEC              bool          `help:"Enable DNSSEC (DO bit)." short:"d"`
+	AuthoritativeDNSSEC bool          `help:"Use authoritative DNSSEC validation instead of trusting resolver." short:"a"`
+	ValidateOnly        bool          `help:"Only return DNSSEC validated responses." short:"V"`
+	StrictValidation    bool          `help:"Fail on any DNSSEC validation error." short:"S"`
+	KeepAlive           bool          `help:"Use persistent connections." short:"k"`
+	Timeout             time.Duration `help:"Timeout for the query operation." default:"10s"`
+	KeyLogFile          string        `help:"Path to TLS key log file (for DoT/DoH/DoQ)." env:"SSLKEYLOGFILE"`
 }
 
 type ListenCmd struct {
-	Address   string        `help:"Address to listen on (e.g., :53, :8053)." default:":53"`
-	Upstream  string        `help:"Upstream DNS server (e.g., https://1.1.1.1/dns-query, tls://8.8.8.8)." short:"u" required:""`
-	Fallback  string        `help:"Fallback DNS server (e.g., https://1.1.1.1/dns-query, tls://8.8.8.8)." short:"f"`
-	Bootstrap string        `help:"Bootstrap DNS server (must be an IP address, e.g., 8.8.8.8, 1.1.1.1)." short:"b"`
-	DNSSEC    bool          `help:"Enable DNSSEC for upstream queries." short:"d"`
-	KeepAlive bool          `help:"Use persistent connections to upstream servers." short:"k"`
-	Timeout   time.Duration `help:"Timeout for upstream queries." default:"5s"`
-	Verbose   bool          `help:"Enable verbose logging." short:"v"`
+	Address             string        `help:"Address to listen on (e.g., :53, :8053)." default:":53"`
+	Upstream            string        `help:"Upstream DNS server (e.g., https://1.1.1.1/dns-query, tls://8.8.8.8)." short:"u" required:""`
+	Fallback            string        `help:"Fallback DNS server (e.g., https://1.1.1.1/dns-query, tls://8.8.8.8)." short:"f"`
+	Bootstrap           string        `help:"Bootstrap DNS server (must be an IP address, e.g., 8.8.8.8, 1.1.1.1)." short:"b"`
+	DNSSEC              bool          `help:"Enable DNSSEC for upstream queries." short:"d"`
+	AuthoritativeDNSSEC bool          `help:"Use authoritative DNSSEC validation instead of trusting resolver." short:"a"`
+	KeepAlive           bool          `help:"Use persistent connections to upstream servers." short:"k"`
+	Timeout             time.Duration `help:"Timeout for upstream queries." default:"5s"`
+	Verbose             bool          `help:"Enable verbose logging." short:"v"`
 }
 
 func (q *QueryCmd) Run() error {
-	logger.Info("Querying %s for %s type %s (DNSSEC: %v, ValidateOnly: %v, StrictValidation: %v, KeepAlive: %v, Timeout: %v)",
-		q.Server, q.DomainName, q.QueryType, q.DNSSEC, q.ValidateOnly, q.StrictValidation, q.KeepAlive, q.Timeout)
+	logger.Info("Querying %s for %s type %s (DNSSEC: %v, AuthoritativeDNSSEC: %v, ValidateOnly: %v, StrictValidation: %v, KeepAlive: %v, Timeout: %v)",
+		q.Server, q.DomainName, q.QueryType, q.DNSSEC, q.AuthoritativeDNSSEC, q.ValidateOnly, q.StrictValidation, q.KeepAlive, q.Timeout)
 
 	opts := client.Options{
-		DNSSEC:           q.DNSSEC,
-		ValidateOnly:     q.ValidateOnly,
-		StrictValidation: q.StrictValidation,
-		KeepAlive:        q.KeepAlive,
+		DNSSEC:              q.DNSSEC,
+		AuthoritativeDNSSEC: q.AuthoritativeDNSSEC,
+		ValidateOnly:        q.ValidateOnly,
+		StrictValidation:    q.StrictValidation,
+		KeepAlive:           q.KeepAlive,
 	}
 
 	logger.Debug("Creating DNS client with options: %+v", opts)
@@ -88,14 +91,15 @@ func (q *QueryCmd) Run() error {
 
 func (l *ListenCmd) Run() error {
 	config := server.Config{
-		Address:   l.Address,
-		Upstream:  l.Upstream,
-		Fallback:  l.Fallback,
-		Bootstrap: l.Bootstrap,
-		DNSSEC:    l.DNSSEC,
-		KeepAlive: l.KeepAlive,
-		Timeout:   l.Timeout,
-		Verbose:   l.Verbose,
+		Address:             l.Address,
+		Upstream:            l.Upstream,
+		Fallback:            l.Fallback,
+		Bootstrap:           l.Bootstrap,
+		DNSSEC:              l.DNSSEC,
+		AuthoritativeDNSSEC: l.AuthoritativeDNSSEC,
+		KeepAlive:           l.KeepAlive,
+		Timeout:             l.Timeout,
+		Verbose:             l.Verbose,
 	}
 
 	logger.Debug("Server config: %+v", config)
@@ -113,7 +117,6 @@ func (l *ListenCmd) Run() error {
 
 	return srv.Start()
 }
-
 
 func printResponse(domain, qtype string, msg *dns.Msg) {
 	fmt.Println(";; QUESTION SECTION:")

@@ -17,13 +17,14 @@ import (
 )
 
 type MeasurementConfig struct {
-	DomainsFile string
-	OutputDir   string
-	QueryType   string
-	DNSSEC      bool
-	KeepAlive   bool
-	Interface   string
-	Servers     []string
+	DomainsFile         string
+	OutputDir           string
+	QueryType           string
+	DNSSEC              bool
+	AuthoritativeDNSSEC bool
+	KeepAlive           bool
+	Interface           string
+	Servers             []string
 }
 
 type MeasurementRunner struct {
@@ -76,7 +77,7 @@ func (r *MeasurementRunner) runMeasurement(upstream string, domains []string, qT
 	defer dnsClient.Close()
 
 	// Setup output files
-	csvPath, pcapPath := GenerateOutputPaths(r.config.OutputDir, upstream, r.config.DNSSEC, r.config.KeepAlive)
+	csvPath, pcapPath := GenerateOutputPaths(r.config.OutputDir, upstream, r.config.DNSSEC, r.config.AuthoritativeDNSSEC, r.config.KeepAlive)
 
 	// Create directory if it doesn't exist
 	if err := os.MkdirAll(filepath.Dir(csvPath), 0755); err != nil {
@@ -90,7 +91,7 @@ func (r *MeasurementRunner) runMeasurement(upstream string, domains []string, qT
 
 	// Show relative path for cleaner output
 	relPath, _ := filepath.Rel(r.config.OutputDir, csvPath)
-	fmt.Printf(">>> Measuring %s (dnssec=%v%s) → %s\n", upstream, r.config.DNSSEC, keepAliveStr, relPath)
+	fmt.Printf(">>> Measuring %s (dnssec=%v, auth=%v%s) → %s\n", upstream, r.config.DNSSEC, r.config.AuthoritativeDNSSEC, keepAliveStr, relPath)
 
 	// Setup packet capture
 	packetCapture, err := capture.NewPacketCapture(r.config.Interface, pcapPath)
@@ -112,8 +113,9 @@ func (r *MeasurementRunner) runMeasurement(upstream string, domains []string, qT
 
 func (r *MeasurementRunner) setupDNSClient(upstream string) (client.DNSClient, error) {
 	opts := client.Options{
-		DNSSEC:    r.config.DNSSEC,
-		KeepAlive: r.config.KeepAlive,
+		DNSSEC:              r.config.DNSSEC,
+		AuthoritativeDNSSEC: r.config.AuthoritativeDNSSEC,
+		KeepAlive:           r.config.KeepAlive,
 	}
 	return client.New(upstream, opts)
 }
@@ -173,13 +175,14 @@ func (r *MeasurementRunner) runQueries(dnsClient client.DNSClient, upstream stri
 
 func (r *MeasurementRunner) performQuery(dnsClient client.DNSClient, domain, upstream, proto string, qType uint16) results.DNSMetric {
 	metric := results.DNSMetric{
-		Domain:    domain,
-		QueryType: r.config.QueryType,
-		Protocol:  proto,
-		DNSSEC:    r.config.DNSSEC,
-		KeepAlive: r.config.KeepAlive,
-		DNSServer: upstream,
-		Timestamp: time.Now(),
+		Domain:              domain,
+		QueryType:           r.config.QueryType,
+		Protocol:            proto,
+		DNSSEC:              r.config.DNSSEC,
+		AuthoritativeDNSSEC: r.config.AuthoritativeDNSSEC,
+		KeepAlive:           r.config.KeepAlive,
+		DNSServer:           upstream,
+		Timestamp:           time.Now(),
 	}
 
 	msg := new(dns.Msg)

@@ -27,13 +27,13 @@ type ValidatingDNSClient struct {
 }
 
 type Options struct {
-	DNSSEC           bool
-	ValidateOnly     bool
-	StrictValidation bool
-	KeepAlive        bool // New flag for long-lived connections
+	DNSSEC              bool
+	AuthoritativeDNSSEC bool
+	ValidateOnly        bool
+	StrictValidation    bool
+	KeepAlive           bool
 }
 
-// New creates a DNS client based on the upstream string
 func New(upstream string, opts Options) (DNSClient, error) {
 	logger.Debug("Creating DNS client for upstream: %s with options: %+v", upstream, opts)
 
@@ -67,8 +67,21 @@ func New(upstream string, opts Options) (DNSClient, error) {
 		return baseClient, nil
 	}
 
-	logger.Debug("DNSSEC enabled, wrapping with validator")
-	validator := dnssec.NewValidatorWithAuthoritativeQueries()
+	logger.Debug("DNSSEC enabled, wrapping with validator (AuthoritativeDNSSEC: %v)", opts.AuthoritativeDNSSEC)
+
+	var validator *dnssec.Validator
+	if opts.AuthoritativeDNSSEC {
+		validator = dnssec.NewValidatorWithAuthoritativeQueries()
+	} else {
+		validator = dnssec.NewValidator(func(qname string, qtype uint16) (*dns.Msg, error) {
+			msg := new(dns.Msg)
+			msg.SetQuestion(dns.Fqdn(qname), qtype)
+			msg.Id = dns.Id()
+			msg.RecursionDesired = true
+			msg.SetEdns0(4096, true)
+			return baseClient.Query(msg)
+		})
+	}
 
 	return &ValidatingDNSClient{
 		client:    baseClient,
@@ -80,8 +93,8 @@ func New(upstream string, opts Options) (DNSClient, error) {
 func (v *ValidatingDNSClient) Query(msg *dns.Msg) (*dns.Msg, error) {
 	if len(msg.Question) > 0 {
 		question := msg.Question[0]
-		logger.Debug("ValidatingDNSClient query: %s %s (DNSSEC: %v, ValidateOnly: %v, StrictValidation: %v)",
-			question.Name, dns.TypeToString[question.Qtype], v.options.DNSSEC, v.options.ValidateOnly, v.options.StrictValidation)
+		logger.Debug("ValidatingDNSClient query: %s %s (DNSSEC: %v, AuthoritativeDNSSEC: %v, ValidateOnly: %v, StrictValidation: %v)",
+			question.Name, dns.TypeToString[question.Qtype], v.options.DNSSEC, v.options.AuthoritativeDNSSEC, v.options.ValidateOnly, v.options.StrictValidation)
 	}
 
 	// Always query the upstream first
@@ -261,7 +274,7 @@ func createClient(scheme, host, port, path string, opts Options) (DNSClient, err
 		logger.Debug("Creating DoT client with config: %+v", config)
 		return dot.New(config)
 
-	case "doq": // DNS over QUIC
+	case "doq":
 		config := doq.Config{
 			Host:      host,
 			Port:      port,

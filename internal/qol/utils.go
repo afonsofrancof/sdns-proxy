@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-func GenerateOutputPaths(outputDir, upstream string, dnssec, keepAlive bool) (csvPath, pcapPath string) {
+func GenerateOutputPaths(outputDir, upstream string, dnssec, authDNSSEC, keepAlive bool) (csvPath, pcapPath string) {
 	proto := DetectProtocol(upstream)
 	cleanServer := cleanServerName(upstream)
 
@@ -25,7 +25,11 @@ func GenerateOutputPaths(outputDir, upstream string, dnssec, keepAlive bool) (cs
 	// Add flags if enabled
 	var flags []string
 	if dnssec {
-		flags = append(flags, "dnssec")
+		if authDNSSEC {
+			flags = append(flags, "auth")
+		} else {
+			flags = append(flags, "trust")
+		}
 	}
 	if keepAlive {
 		flags = append(flags, "persist")

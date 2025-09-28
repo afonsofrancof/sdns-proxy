@@ -18,14 +18,15 @@ import (
 )
 
 type Config struct {
-	Address   string
-	Upstream  string
-	Fallback  string
-	Bootstrap string
-	DNSSEC    bool
-	KeepAlive bool // Added KeepAlive field
-	Timeout   time.Duration
-	Verbose   bool
+	Address             string
+	Upstream            string
+	Fallback            string
+	Bootstrap           string
+	DNSSEC              bool
+	AuthoritativeDNSSEC bool
+	KeepAlive           bool
+	Timeout             time.Duration
+	Verbose             bool
 }
 
 type cacheKey struct {
@@ -162,8 +163,9 @@ func (s *Server) initClients() error {
 
 	logger.Debug("Creating upstream client for %s (resolved: %s)", s.config.Upstream, resolvedUpstream)
 	upstreamClient, err := client.New(resolvedUpstream, client.Options{
-		DNSSEC:    s.config.DNSSEC,
-		KeepAlive: s.config.KeepAlive, // Pass KeepAlive to upstream client
+		DNSSEC:              s.config.DNSSEC,
+		AuthoritativeDNSSEC: s.config.AuthoritativeDNSSEC,
+		KeepAlive:           s.config.KeepAlive,
 	})
 	if err != nil {
 		logger.Error("Failed to create upstream client: %v", err)
