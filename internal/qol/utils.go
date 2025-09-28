@@ -10,8 +10,7 @@ import (
 
 func GenerateOutputPaths(outputDir, upstream string, dnssec, keepAlive bool) (csvPath, pcapPath string) {
 	proto := DetectProtocol(upstream)
-	serverName := ExtractServerName(upstream)
-	cleanServer := cleanServerName(serverName)
+	cleanServer := cleanServerName(upstream)
 
 	// Create date-based subdirectory
 	date := time.Now().Format("2006-01-02")
@@ -91,17 +90,4 @@ func DetectProtocol(upstream string) string {
 		}
 	}
 	return "do53"
-}
-
-func ExtractServerName(upstream string) string {
-	if strings.Contains(upstream, "://") {
-		u, err := url.Parse(upstream)
-		if err == nil {
-			if u.Scheme == "https" && u.Path != "" && u.Path != "/" {
-				return u.Host + u.Path
-			}
-			return u.Host
-		}
-	}
-	return upstream
 }
