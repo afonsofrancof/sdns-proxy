@@ -51,7 +51,7 @@ CONN_COMBINATIONS=(
     "--dnssec --keep-alive"
     
     # DNSSEC on (auth), Keep on
-    "--dnssec --auth-dnssec --keep-alive"
+    "--dnssec --authoritative-dnssec --keep-alive"
 )
 
 # Combinations for QUIC and connectionless protocols (no keep-alive)
@@ -63,7 +63,7 @@ NO_KEEPALIVE_COMBINATIONS=(
     "--dnssec"
     
     # DNSSEC on (auth)
-    "--dnssec --auth-dnssec"
+    "--dnssec --authoritative-dnssec"
 )
 
 echo "=== Running TCP-based protocols (TLS/HTTPS) ==="
