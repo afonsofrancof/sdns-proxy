@@ -67,7 +67,7 @@ func (mw *MetricsWriter) WriteMetric(metric DNSMetric) error {
 		strconv.FormatBool(metric.AuthoritativeDNSSEC),
 		strconv.FormatBool(metric.KeepAlive),
 		metric.DNSServer,
-		metric.Timestamp.Format(time.RFC3339),
+		metric.Timestamp.Format(time.RFC3339Nano),
 		strconv.FormatInt(metric.Duration, 10),
 		strconv.FormatFloat(metric.DurationMs, 'f', 3, 64),
 		strconv.Itoa(metric.RequestSize),

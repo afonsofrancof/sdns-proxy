@@ -155,8 +155,6 @@ func (r *MeasurementRunner) runQueries(dnsClient client.DNSClient, upstream stri
 
 		r.printQueryResult(metric)
 
-		// For keep-alive connections, add smaller delays between queries
-		// to better utilize the persistent connection
 		if r.config.KeepAlive {
 			time.Sleep(5 * time.Millisecond)
 		} else {
@@ -182,7 +180,6 @@ func (r *MeasurementRunner) performQuery(dnsClient client.DNSClient, domain, ups
 		AuthoritativeDNSSEC: r.config.AuthoritativeDNSSEC,
 		KeepAlive:           r.config.KeepAlive,
 		DNSServer:           upstream,
-		Timestamp:           time.Now(),
 	}
 
 	msg := new(dns.Msg)
@@ -199,6 +196,7 @@ func (r *MeasurementRunner) performQuery(dnsClient client.DNSClient, domain, ups
 	metric.RequestSize = len(packed)
 
 	start := time.Now()
+	metric.Timestamp = start
 	resp, err := dnsClient.Query(msg)
 	metric.Duration = time.Since(start).Nanoseconds()
 	metric.DurationMs = float64(metric.Duration) / 1e6

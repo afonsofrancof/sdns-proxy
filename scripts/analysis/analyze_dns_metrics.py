@@ -10,7 +10,7 @@ def map_server_to_resolver(server):
     
     if '1.1.1.1' in server_lower or 'cloudflare' in server_lower:
         return 'Cloudflare'
-    elif '8.8.8.8' in server_lower or 'dns.google' in server_lower:
+    elif '8.8.8.8' in server_lower or 'google' in server_lower:
         return 'Google'
     elif '9.9.9.9' in server_lower or 'quad9' in server_lower:
         return 'Quad9'
