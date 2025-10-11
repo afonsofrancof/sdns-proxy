@@ -38,6 +38,10 @@ type Client struct {
 }
 
 func New(config Config) (*Client, error) {
+	if config.HTTP3 {
+		config.KeepAlive = true
+	}
+
 	logger.Debug("Creating DoH client: %s:%s%s (KeepAlive: %v)", config.Host, config.Port, config.Path, config.KeepAlive)
 	
 	if config.Host == "" || config.Port == "" || config.Path == "" {
@@ -76,10 +80,6 @@ func New(config Config) (*Client, error) {
 	if config.KeepAlive {
 		transport.MaxIdleConnsPerHost = 10
 		transport.MaxConnsPerHost = 10
-	} else {
-		transport.MaxIdleConns = 0
-		transport.MaxIdleConnsPerHost = 0
-		transport.DisableKeepAlives = true
 	}
 
 	httpClient := &http.Client{
@@ -93,11 +93,6 @@ func New(config Config) (*Client, error) {
 			TLSClientConfig: tlsConfig,
 			AllowHTTP:       true,
 		}
-		
-		if !config.KeepAlive {
-			http2Transport.DisableCompression = true
-		}
-		
 		httpClient.Transport = http2Transport
 		transportType = "HTTP/2"
 	} else if config.HTTP3 {
@@ -106,11 +101,6 @@ func New(config Config) (*Client, error) {
 			TLSClientConfig: quicTlsConfig,
 			QUICConfig:      quicConfig,
 		}
-		
-		if !config.KeepAlive {
-			http3Transport.DisableCompression = true
-		}
-		
 		httpClient.Transport = http3Transport
 		transportType = "HTTP/3"
 	} else {

@@ -94,7 +94,10 @@ func (r *MeasurementRunner) runMeasurement(upstream string, domains []string, qT
 	fmt.Printf(">>> Measuring %s (dnssec=%v, auth=%v%s) → %s\n", upstream, r.config.DNSSEC, r.config.AuthoritativeDNSSEC, keepAliveStr, relPath)
 
 	// Setup packet capture
-	packetCapture, err := capture.NewPacketCapture(r.config.Interface, pcapPath)
+	proto := DetectProtocol(upstream)
+
+	// Setup packet capture with protocol-aware filtering
+	packetCapture, err := capture.NewPacketCapture(r.config.Interface, pcapPath, proto)
 	if err != nil {
 		return err
 	}
@@ -107,6 +110,7 @@ func (r *MeasurementRunner) runMeasurement(upstream string, domains []string, qT
 	}
 	defer writer.Close()
 
+	time.Sleep(time.Second)
 	// Run measurements
 	return r.runQueries(dnsClient, upstream, domains, qType, writer, packetCapture)
 }
