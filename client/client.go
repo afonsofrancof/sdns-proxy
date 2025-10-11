@@ -279,7 +279,6 @@ func createClient(scheme, host, port, path string, opts Options) (DNSClient, err
 			Host:      host,
 			Port:      port,
 			DNSSEC:    opts.DNSSEC,
-			KeepAlive: opts.KeepAlive,
 		}
 		logger.Debug("Creating DoQ client with config: %+v", config)
 		return doq.New(config)
