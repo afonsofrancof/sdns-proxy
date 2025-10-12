@@ -35,7 +35,7 @@ CONNLESS_SERVERS=(
 # Common args
 COMMON_ARGS=(
     "$DOMAINS_FILE"
-    --interface eth0
+    --interface veth0
     --timeout 5s
 )
 
