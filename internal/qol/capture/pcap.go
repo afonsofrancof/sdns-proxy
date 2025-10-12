@@ -32,7 +32,7 @@ func NewPacketCapture(iface, outputPath string) (*PacketCapture, error) {
 	}
 
 	// Open in append mode
-	file, err := os.OpenFile(outputPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	file, err := os.OpenFile(outputPath, os.O_CREATE|os.O_APPEND|os.O_RDWR, 0644)
 	if err != nil {
 		handle.Close()
 		return nil, fmt.Errorf("create/open pcap file: %w", err)
@@ -63,6 +63,8 @@ func (pc *PacketCapture) Start(ctx context.Context) error {
 	go func() {
 		for {
 			select {
+			case <-ctx.Done():
+				return
 			case pkt, ok := <-pktCh:
 				if !ok {
 					return
@@ -75,8 +77,6 @@ func (pc *PacketCapture) Start(ctx context.Context) error {
 					}
 					pc.mu.Unlock()
 				}
-			case <-ctx.Done():
-				return
 			}
 		}
 	}()

@@ -60,7 +60,7 @@ func (r *MeasurementRunner) Run() error {
 	}
 
 	for _, upstream := range r.config.Servers {
-		if err := r.runMeasurement(upstream, domains, qType); err != nil {
+		if err := r.runPerUpstream(upstream, domains, qType); err != nil {
 			fmt.Fprintf(os.Stderr, "error on server %s: %v\n", upstream, err)
 		}
 	}
@@ -68,7 +68,16 @@ func (r *MeasurementRunner) Run() error {
 	return nil
 }
 
-func (r *MeasurementRunner) runMeasurement(upstream string, domains []string, qType uint16) error {
+func (r *MeasurementRunner) setupDNSClient(upstream string) (client.DNSClient, error) {
+	opts := client.Options{
+		DNSSEC:              r.config.DNSSEC,
+		AuthoritativeDNSSEC: r.config.AuthoritativeDNSSEC,
+		KeepAlive:           r.config.KeepAlive,
+	}
+	return client.New(upstream, opts)
+}
+
+func (r *MeasurementRunner) runPerUpstream(upstream string, domains []string, qType uint16) error {
 	// Setup DNS client
 	dnsClient, err := r.setupDNSClient(upstream)
 	if err != nil {
@@ -112,21 +121,11 @@ func (r *MeasurementRunner) runMeasurement(upstream string, domains []string, qT
 	return r.runQueries(dnsClient, upstream, domains, qType, writer, packetCapture)
 }
 
-func (r *MeasurementRunner) setupDNSClient(upstream string) (client.DNSClient, error) {
-	opts := client.Options{
-		DNSSEC:              r.config.DNSSEC,
-		AuthoritativeDNSSEC: r.config.AuthoritativeDNSSEC,
-		KeepAlive:           r.config.KeepAlive,
-	}
-	return client.New(upstream, opts)
-}
-
 func (r *MeasurementRunner) runQueries(dnsClient client.DNSClient, upstream string,
 	domains []string, qType uint16, writer *results.MetricsWriter,
 	packetCapture *capture.PacketCapture) error {
 
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	if err := packetCapture.Start(ctx); err != nil {
 		return err
@@ -162,6 +161,8 @@ func (r *MeasurementRunner) runQueries(dnsClient client.DNSClient, upstream stri
 			time.Sleep(10 * time.Millisecond)
 		}
 	}
+
+	cancel()
 
 	time.Sleep(100 * time.Millisecond)
 
