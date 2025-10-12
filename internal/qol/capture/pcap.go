@@ -31,12 +31,7 @@ func NewPacketCapture(iface, outputPath string) (*PacketCapture, error) {
 		fileExists = true
 	}
 
-	var file *os.File
-	if fileExists {
-		file, err = os.OpenFile(outputPath, os.O_APPEND, 0644)
-	} else {
-		file, err = os.Create(outputPath)
-	}
+	file, err := os.OpenFile(outputPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
 		handle.Close()
 		return nil, fmt.Errorf("create/open pcap file: %w", err)

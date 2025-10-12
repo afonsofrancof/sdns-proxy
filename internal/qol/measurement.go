@@ -126,6 +126,7 @@ func (r *MeasurementRunner) runQueries(dnsClient client.DNSClient, upstream stri
 	packetCapture *capture.PacketCapture) error {
 
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	if err := packetCapture.Start(ctx); err != nil {
 		return err
@@ -161,8 +162,6 @@ func (r *MeasurementRunner) runQueries(dnsClient client.DNSClient, upstream stri
 			time.Sleep(10 * time.Millisecond)
 		}
 	}
-
-	cancel()
 
 	time.Sleep(100 * time.Millisecond)
 
