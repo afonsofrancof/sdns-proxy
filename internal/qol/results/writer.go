@@ -50,7 +50,7 @@ func NewMetricsWriter(path string) (*MetricsWriter, error) {
 		header := []string{
 			"domain", "query_type", "protocol", "dnssec", "auth_dnssec", "keep_alive",
 			"dns_server", "timestamp", "duration_ns", "duration_ms",
-			"request_size_bytes", "response_size_bytes", "response_code", "error", "run_id",
+			"request_size_bytes", "response_size_bytes", "response_code", "error",
 		}
 
 		if err := writer.Write(header); err != nil {
