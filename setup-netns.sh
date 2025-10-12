@@ -67,6 +67,9 @@ sudo ip netns exec $NETNS_NAME ip route add default via $HOST_IP
 echo "Enabling IP forwarding"
 sudo sysctl -w net.ipv4.ip_forward=1
 
+echo "Disabling IPv6"
+sudo ip netns exec $NETNS_NAME sysctl -w net.ipv6.conf.all.disable_ipv6=1
+
 echo "Setting up NAT"
 sudo iptables -t nat -A POSTROUTING -s $SUBNET -o $PHYSICAL_IF -j MASQUERADE
 
