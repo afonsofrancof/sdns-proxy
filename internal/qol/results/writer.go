@@ -31,26 +31,34 @@ type MetricsWriter struct {
 }
 
 func NewMetricsWriter(path string) (*MetricsWriter, error) {
-	file, err := os.Create(path)
+	// Check if file exists
+	fileExists := false
+	if _, err := os.Stat(path); err == nil {
+		fileExists = true
+	}
+
+	// Open in append mode
+	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
-		return nil, fmt.Errorf("create csv output: %w", err)
+		return nil, fmt.Errorf("create/open csv output: %w", err)
 	}
 
 	writer := csv.NewWriter(file)
 
-	// Write CSV header
-	header := []string{
-		"domain", "query_type", "protocol", "dnssec", "auth_dnssec", "keep_alive",
-		"dns_server", "timestamp", "duration_ns", "duration_ms",
-		"request_size_bytes", "response_size_bytes", "response_code", "error",
-	}
+	// Only write header if file is new
+	if !fileExists {
+		header := []string{
+			"domain", "query_type", "protocol", "dnssec", "auth_dnssec", "keep_alive",
+			"dns_server", "timestamp", "duration_ns", "duration_ms",
+			"request_size_bytes", "response_size_bytes", "response_code", "error", "run_id",
+		}
 
-	if err := writer.Write(header); err != nil {
-		file.Close()
-		return nil, fmt.Errorf("write csv header: %w", err)
+		if err := writer.Write(header); err != nil {
+			file.Close()
+			return nil, fmt.Errorf("write csv header: %w", err)
+		}
+		writer.Flush()
 	}
-
-	writer.Flush()
 
 	return &MetricsWriter{
 		writer: writer,

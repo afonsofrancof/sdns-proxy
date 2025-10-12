@@ -25,17 +25,28 @@ func NewPacketCapture(iface, outputPath string) (*PacketCapture, error) {
 		return nil, fmt.Errorf("pcap open (try running as root): %w", err)
 	}
 
-	file, err := os.Create(outputPath)
+	// Check if file exists
+	fileExists := false
+	if _, err := os.Stat(outputPath); err == nil {
+		fileExists = true
+	}
+
+	// Open in append mode
+	file, err := os.OpenFile(outputPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		handle.Close()
-		return nil, fmt.Errorf("create pcap file: %w", err)
+		return nil, fmt.Errorf("create/open pcap file: %w", err)
 	}
 
 	writer := pcapgo.NewWriter(file)
-	if err := writer.WriteFileHeader(65535, handle.LinkType()); err != nil {
-		handle.Close()
-		file.Close()
-		return nil, fmt.Errorf("pcap header: %w", err)
+
+	// Only write header if file is new
+	if !fileExists {
+		if err := writer.WriteFileHeader(65535, handle.LinkType()); err != nil {
+			handle.Close()
+			file.Close()
+			return nil, fmt.Errorf("pcap header: %w", err)
+		}
 	}
 
 	return &PacketCapture{
@@ -81,20 +92,20 @@ func (pc *PacketCapture) GetError() error {
 
 func (pc *PacketCapture) Close() error {
 	var errs []error
-	
+
 	if pc.handle != nil {
 		pc.handle.Close()
 	}
-	
+
 	if pc.file != nil {
 		if err := pc.file.Close(); err != nil {
 			errs = append(errs, err)
 		}
 	}
-	
+
 	if len(errs) > 0 {
 		return errs[0]
 	}
-	
+
 	return nil
 }

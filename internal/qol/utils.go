@@ -5,25 +5,17 @@ import (
 	"net/url"
 	"path/filepath"
 	"strings"
-	"time"
 )
 
 func GenerateOutputPaths(outputDir, upstream string, dnssec, authDNSSEC, keepAlive bool) (csvPath, pcapPath string) {
 	proto := DetectProtocol(upstream)
 	cleanServer := cleanServerName(upstream)
 
-	// Create date-based subdirectory
-	date := time.Now().Format("2006-01-02")
-	timestamp := time.Now().Format("150405")
+	subDir := filepath.Join(outputDir, cleanServer)
 
-	// Organize hierarchically: resolver/date/filename
-	subDir := filepath.Join(outputDir, cleanServer, date)
-
-	// Create simple filename
 	base := proto
-
-	// Add flags if enabled
 	var flags []string
+	
 	if dnssec {
 		if authDNSSEC {
 			flags = append(flags, "auth")
@@ -39,11 +31,8 @@ func GenerateOutputPaths(outputDir, upstream string, dnssec, authDNSSEC, keepAli
 		base = fmt.Sprintf("%s-%s", base, strings.Join(flags, "-"))
 	}
 
-	// Add timestamp
-	filename := fmt.Sprintf("%s-%s", base, timestamp)
-
-	return filepath.Join(subDir, filename+".csv"),
-		filepath.Join(subDir, filename+".pcap")
+	return filepath.Join(subDir, base+".csv"),
+		filepath.Join(subDir, base+".pcap")
 }
 
 func cleanServerName(server string) string {
