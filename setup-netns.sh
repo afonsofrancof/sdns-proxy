@@ -3,13 +3,47 @@
 # Exit on error
 set -e
 
-NETNS_NAME="sdns"
+# Default values
+NETNS_NAME="myapp"
 VETH_HOST="veth0"
 VETH_NS="veth1"
 HOST_IP="192.168.100.1"
 NS_IP="192.168.100.2"
 SUBNET="192.168.100.0/24"
-PHYSICAL_IF="en0"
+PHYSICAL_IF="eth0"
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    -n|--namespace)
+      NETNS_NAME="$2"
+      shift 2
+      ;;
+    -p|--physical-if)
+      PHYSICAL_IF="$2"
+      shift 2
+      ;;
+    --help)
+      echo "Usage: $0 [OPTIONS]"
+      echo ""
+      echo "Options:"
+      echo "  -n, --namespace NAME      Namespace name (default: myapp)"
+      echo "  -p, --physical-if NAME    Physical interface (default: eth0)"
+      echo "  --help                    Show this help"
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1"
+      echo "Use --help for usage information"
+      exit 1
+      ;;
+  esac
+done
+
+echo "Configuration:"
+echo "  Namespace: $NETNS_NAME"
+echo "  Physical interface: $PHYSICAL_IF"
+echo ""
 
 echo "Creating network namespace: $NETNS_NAME"
 sudo ip netns add $NETNS_NAME
@@ -36,6 +70,11 @@ sudo sysctl -w net.ipv4.ip_forward=1
 echo "Setting up NAT"
 sudo iptables -t nat -A POSTROUTING -s $SUBNET -o $PHYSICAL_IF -j MASQUERADE
 
+echo "Setting up forwarding rules"
+sudo iptables -I FORWARD -i $VETH_HOST -o $PHYSICAL_IF -j ACCEPT
+sudo iptables -I FORWARD -i $PHYSICAL_IF -o $VETH_HOST -j ACCEPT
+
+echo ""
 echo "Done! Network namespace '$NETNS_NAME' is ready."
 echo ""
 echo "To run your app in the namespace:"

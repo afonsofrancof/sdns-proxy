@@ -19,7 +19,7 @@ type RunCmd struct {
 	DNSSEC              bool          `long:"dnssec" help:"Enable DNSSEC"`
 	AuthoritativeDNSSEC bool          `short:"a" long:"auth-dnssec" help:"Use authoritative DNSSEC validation instead of trusting resolver"`
 	KeepAlive           bool          `short:"k" long:"keep-alive" help:"Use persistent connections"`
-	Interface           string        `long:"iface" default:"any" help:"Capture interface (e.g., eth0, any)"`
+	Interface           string        `long:"iface" default:"veth1" help:"Capture interface (e.g., eth0, any)"`
 	Servers             []string      `short:"s" long:"server" help:"Upstream servers (udp://..., tls://..., https://..., doq://...)"`
 }
 

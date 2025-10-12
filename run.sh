@@ -1,8 +1,72 @@
 #!/bin/bash
 
-TOOL_PATH="$1"/"qol"
-DOMAINS_FILE="$1"/"domains.txt"
-OUTPUT_DIR="$1"/"results"
+# Exit on error
+set -e
+
+# Default values
+TOOL_PATH="./qol"
+DOMAINS_FILE="./domains.txt"
+OUTPUT_DIR="./results"
+INTERFACE="veth1"
+TIMEOUT="5s"
+SLEEP_TIME="1"
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    -t|--tool-path)
+      TOOL_PATH="$2"
+      shift 2
+      ;;
+    -d|--domains-file)
+      DOMAINS_FILE="$2"
+      shift 2
+      ;;
+    -o|--output-dir)
+      OUTPUT_DIR="$2"
+      shift 2
+      ;;
+    -I|--interface)
+      INTERFACE="$2"
+      shift 2
+      ;;
+    -T|--timeout)
+      TIMEOUT="$2"
+      shift 2
+      ;;
+    -s|--sleep)
+      SLEEP_TIME="$2"
+      shift 2
+      ;;
+    --help)
+      echo "Usage: $0 [OPTIONS]"
+      echo ""
+      echo "Options:"
+      echo "  -t, --tool-path PATH      Path to qol tool (default: ./qol)"
+      echo "  -d, --domains-file PATH   Path to domains file (default: ./domains.txt)"
+      echo "  -o, --output-dir PATH     Output directory (default: ./results)"
+      echo "  -I, --interface NAME      Network interface (default: veth1)"
+      echo "  -T, --timeout DURATION    Timeout duration (default: 5s)"
+      echo "  -s, --sleep SECONDS       Sleep between runs (default: 1)"
+      echo "  --help                    Show this help"
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1"
+      echo "Use --help for usage information"
+      exit 1
+      ;;
+  esac
+done
+
+echo "Configuration:"
+echo "  Tool path: $TOOL_PATH"
+echo "  Domains file: $DOMAINS_FILE"
+echo "  Output dir: $OUTPUT_DIR"
+echo "  Interface: $INTERFACE"
+echo "  Timeout: $TIMEOUT"
+echo "  Sleep time: ${SLEEP_TIME}s"
+echo ""
 
 # Connection-based protocols that benefit from keep-alive (TCP-based)
 CONN_SERVERS=(
@@ -35,8 +99,8 @@ CONNLESS_SERVERS=(
 # Common args
 COMMON_ARGS=(
     "$DOMAINS_FILE"
-    --interface veth0
-    --timeout 5s
+    --interface "$INTERFACE"
+    --timeout "$TIMEOUT"
 )
 
 # Combinations for TCP-based connection protocols
@@ -78,7 +142,7 @@ for FLAGS in "${CONN_COMBINATIONS[@]}"; do
         "${CONN_SERVERS[@]}" \
         "${FLAGS_ARRAY[@]}"
     
-    sleep 1
+    sleep "$SLEEP_TIME"
 done
 
 echo ""
@@ -94,7 +158,7 @@ for FLAGS in "${NO_KEEPALIVE_COMBINATIONS[@]}"; do
         "${QUIC_SERVERS[@]}" \
         "${FLAGS_ARRAY[@]}"
     
-    sleep 1
+    sleep "$SLEEP_TIME"
 done
 
 echo ""
@@ -110,7 +174,7 @@ for FLAGS in "${NO_KEEPALIVE_COMBINATIONS[@]}"; do
         "${CONNLESS_SERVERS[@]}" \
         "${FLAGS_ARRAY[@]}"
     
-    sleep 1
+    sleep "$SLEEP_TIME"
 done
 
 echo ""
