@@ -1,3 +1,4 @@
+// ./internal/qol/utils.go
 package qol
 
 import (
@@ -15,7 +16,7 @@ func GenerateOutputPaths(outputDir, upstream string, dnssec, authDNSSEC, keepAli
 
 	base := proto
 	var flags []string
-	
+
 	if dnssec {
 		if authDNSSEC {
 			flags = append(flags, "auth")
@@ -57,6 +58,7 @@ func cleanServerName(server string) string {
 		"94.140.15.15":          "adguard",
 		"dns.adguard.com":       "adguard",
 		"dns.adguard-dns.com":   "adguard",
+		"AQMAAAAAAAAAETk0LjE0MC4xNS4xNTo1NDQzINErR_JS3PLCu_iZEIbq95zkSV2LFsigxDIuUso_OQhzIjIuZG5zY3J5cHQuZGVmYXVsdC5uczEuYWRndWFyZC5jb20": "adguard",
 	}
 
 	serverName := ""
@@ -76,11 +78,31 @@ func cleanServerName(server string) string {
 }
 
 func DetectProtocol(upstream string) string {
+
 	if strings.Contains(upstream, "://") {
 		u, err := url.Parse(upstream)
 		if err == nil && u.Scheme != "" {
-			return strings.ToLower(u.Scheme)
+			scheme := strings.ToLower(u.Scheme)
+			// Normalize scheme names
+			switch scheme {
+			case "udp", "doudp":
+				return "doudp"
+			case "tcp", "dotcp":
+				return "dotcp"
+			case "tls", "dot":
+				return "dot"
+			case "https", "doh":
+				return "doh"
+			case "doh3":
+				return "doh3"
+			case "doq":
+				return "doq"
+			case "sdns":
+				return "dnscrypt"
+			default:
+				return scheme
+			}
 		}
 	}
-	return "do53"
+	return "doudp"
 }

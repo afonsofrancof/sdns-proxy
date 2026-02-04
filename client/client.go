@@ -8,10 +8,12 @@ import (
 
 	"github.com/afonsofrancof/sdns-proxy/common/dnssec"
 	"github.com/afonsofrancof/sdns-proxy/common/logger"
-	"github.com/afonsofrancof/sdns-proxy/common/protocols/do53"
+	"github.com/afonsofrancof/sdns-proxy/common/protocols/dnscrypt"
 	"github.com/afonsofrancof/sdns-proxy/common/protocols/doh"
 	"github.com/afonsofrancof/sdns-proxy/common/protocols/doq"
 	"github.com/afonsofrancof/sdns-proxy/common/protocols/dot"
+	"github.com/afonsofrancof/sdns-proxy/common/protocols/dotcp"
+	"github.com/afonsofrancof/sdns-proxy/common/protocols/doudp"
 	"github.com/miekg/dns"
 )
 
@@ -37,7 +39,7 @@ type Options struct {
 func New(upstream string, opts Options) (DNSClient, error) {
 	logger.Debug("Creating DNS client for upstream: %s with options: %+v", upstream, opts)
 
-	// Try to parse as URL first
+	// Try to parse as URL
 	parsedURL, err := url.Parse(upstream)
 	if err != nil {
 		logger.Error("Invalid upstream format: %v", err)
@@ -51,7 +53,7 @@ func New(upstream string, opts Options) (DNSClient, error) {
 		logger.Debug("Parsing %s as URL with scheme %s", upstream, parsedURL.Scheme)
 		baseClient, err = createClientFromURL(parsedURL, opts)
 	} else {
-		// No scheme - treat as plain DNS address
+		// No scheme - treat as plain DNS address (defaults to UDP)
 		logger.Debug("Parsing %s as plain DNS address", upstream)
 		baseClient, err = createClientFromPlainAddress(upstream, opts)
 	}
@@ -200,7 +202,8 @@ func createClientFromPlainAddress(address string, opts Options) (DNSClient, erro
 	}
 
 	logger.Debug("Creating client from plain address: host=%s, port=%s", host, port)
-	return createClient("", host, port, "", opts)
+	// Default to UDP for plain addresses
+	return createClient("udp", host, port, "", opts)
 }
 
 func getDefaultPort(scheme string) string {
@@ -212,6 +215,8 @@ func getDefaultPort(scheme string) string {
 		port = "853"
 	case "quic", "doq":
 		port = "853"
+	case "dnscrypt":
+		port = "443"
 	}
 	logger.Debug("Default port for scheme %s: %s", scheme, port)
 	return port
@@ -232,13 +237,22 @@ func createClient(scheme, host, port, path string, opts Options) (DNSClient, err
 		scheme, host, port, path, opts.DNSSEC, opts.KeepAlive)
 
 	switch scheme {
-	case "udp", "tcp", "do53", "":
-		config := do53.Config{
+	case "udp", "doudp", "":
+		config := doudp.Config{
 			HostAndPort: net.JoinHostPort(host, port),
 			DNSSEC:      opts.DNSSEC,
 		}
-		logger.Debug("Creating DO53 client with config: %+v", config)
-		return do53.New(config)
+		logger.Debug("Creating DoUDP client with config: %+v", config)
+		return doudp.New(config)
+
+	case "tcp", "dotcp":
+		config := dotcp.Config{
+			HostAndPort: net.JoinHostPort(host, port),
+			DNSSEC:      opts.DNSSEC,
+			KeepAlive:   opts.KeepAlive,
+		}
+		logger.Debug("Creating DoTCP client with config: %+v", config)
+		return dotcp.New(config)
 
 	case "https", "doh":
 		config := doh.Config{
@@ -274,11 +288,22 @@ func createClient(scheme, host, port, path string, opts Options) (DNSClient, err
 		logger.Debug("Creating DoT client with config: %+v", config)
 		return dot.New(config)
 
+	case "sdns":
+		config := dnscrypt.Config{
+			// Janky solution but whatever
+			// Here we rejoin them as the client wants them together
+			// The host is not really a host but whatever
+			ServerStamp:  fmt.Sprintf("%v://%v",scheme,host),
+			DNSSEC:      opts.DNSSEC,
+		}
+		logger.Debug("Creating DNSCrypt client with stamp")
+		return dnscrypt.New(config)
+
 	case "doq":
 		config := doq.Config{
-			Host:      host,
-			Port:      port,
-			DNSSEC:    opts.DNSSEC,
+			Host:   host,
+			Port:   port,
+			DNSSEC: opts.DNSSEC,
 		}
 		logger.Debug("Creating DoQ client with config: %+v", config)
 		return doq.New(config)

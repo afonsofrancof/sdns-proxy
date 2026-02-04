@@ -1,289 +1,498 @@
-import csv
-import os
-import statistics
-from collections import defaultdict
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+import numpy as np
 from pathlib import Path
+from scipy import stats
+import warnings
 
-def map_server_to_resolver(server):
-    """Map server address/domain to resolver name"""
-    server_lower = server.lower()
-    
-    if '1.1.1.1' in server_lower or 'cloudflare' in server_lower:
-        return 'Cloudflare'
-    elif '8.8.8.8' in server_lower or 'google' in server_lower:
-        return 'Google'
-    elif '9.9.9.9' in server_lower or 'quad9' in server_lower:
-        return 'Quad9'
-    elif 'adguard' in server_lower:
-        return 'AdGuard'
-    else:
-        return server  # Fallback to original server name
+warnings.filterwarnings('ignore')
 
-def extract_from_new_format(filename):
-    """Parse new filename format: protocol[-flags]-timestamp.csv"""
-    base = filename.replace('.csv', '')
-    parts = base.split('-')
-    
-    if len(parts) < 2:
-        return None, None, None, None
-    
-    protocol = parts[0]
-    timestamp = parts[-1]
-    
-    # Flags are everything between protocol and timestamp
-    flags_str = '-'.join(parts[1:-1])
-    
-    # Determine DNSSEC status
-    if 'auth' in flags_str:
-        dnssec_status = 'auth'  # Authoritative DNSSEC
-    elif 'trust' in flags_str:
-        dnssec_status = 'trust'  # Trust-based DNSSEC
-    else:
-        dnssec_status = 'off'
-    
-    keepalive_status = 'on' if 'persist' in flags_str else 'off'
-    
-    return protocol, dnssec_status, keepalive_status, flags_str
+# Set style for publication-quality plots
+sns.set_style("whitegrid")
+plt.rcParams['figure.dpi'] = 300
+plt.rcParams['savefig.dpi'] = 300
+plt.rcParams['font.size'] = 10
+plt.rcParams['figure.figsize'] = (12, 6)
 
-def extract_server_info_from_csv(row):
-    """Extract DNSSEC info from CSV row data"""
-    dnssec = row.get('dnssec', 'false').lower() == 'true'
-    auth_dnssec = row.get('auth_dnssec', 'false').lower() == 'true'
-    keepalive = row.get('keep_alive', 'false').lower() == 'true'
-    
-    if dnssec:
-        if auth_dnssec:
-            dnssec_status = 'auth'
-        else:
-            dnssec_status = 'trust'
-    else:
-        dnssec_status = 'off'
-    
-    keepalive_status = 'on' if keepalive else 'off'
-    
-    return dnssec_status, keepalive_status
-
-def extract_server_info(file_path, row):
-    """Extract info using directory structure, filename, and CSV data"""
-    path = Path(file_path)
-    
-    # First try to get DNSSEC info from CSV row (most accurate)
-    try:
-        csv_dnssec_status, csv_keepalive_status = extract_server_info_from_csv(row)
-        protocol = row.get('protocol', '').lower()
+class DNSAnalyzer:
+    def __init__(self, results_dir='results'):
+        self.results_dir = Path(results_dir)
+        self.df = None
         
-        # Get server from directory structure
-        parts = path.parts
-        if len(parts) >= 4:
-            potential_date = parts[-2]
-            # Check if it's a date like YYYY-MM-DD
-            if len(potential_date) == 10 and potential_date[4] == '-' and potential_date[7] == '-' and potential_date.replace('-', '').isdigit():
-                server = parts[-3]  # resolver folder (e.g., cloudflare)
-                return protocol, server, csv_dnssec_status, csv_keepalive_status
+    def load_all_data(self):
+        """Load all CSV files from the results directory"""
+        data_frames = []
         
-        # Fallback to DNS server field
-        server = row.get('dns_server', '')
-        return protocol, server, csv_dnssec_status, csv_keepalive_status
+        providers = ['adguard', 'cloudflare', 'google', 'quad9']
         
-    except (KeyError, ValueError):
-        pass
-    
-    # Fallback to filename parsing
-    filename = path.name
-    protocol, dnssec_status, keepalive_status, flags = extract_from_new_format(filename)
-    
-    if protocol:
-        # Get server from directory structure
-        parts = path.parts
-        if len(parts) >= 4:
-            potential_date = parts[-2]
-            if len(potential_date) == 10 and potential_date[4] == '-' and potential_date[7] == '-' and potential_date.replace('-', '').isdigit():
-                server = parts[-3]
-                return protocol, server, dnssec_status, keepalive_status
-        
-        # Fallback to DNS server field
-        server = row.get('dns_server', '')
-        return protocol, server, dnssec_status, keepalive_status
-    
-    return None, None, None, None
-
-def get_dnssec_display_name(dnssec_status):
-    """Convert DNSSEC status to display name"""
-    if dnssec_status == 'auth':
-        return 'DNSSEC (Authoritative)'
-    elif dnssec_status == 'trust':
-        return 'DNSSEC (Trust-based)'
-    else:
-        return 'No DNSSEC'
-
-def analyze_dns_data(root_directory, output_file):
-    """Analyze DNS data and generate metrics"""
-    
-    # Dictionary to store measurements: {(resolver, protocol, dnssec, keepalive): [durations]}
-    measurements = defaultdict(list)
-    
-    # Walk through all directories
-    for root, dirs, files in os.walk(root_directory):
-        for file in files:
-            if file.endswith('.csv'):
-                file_path = os.path.join(root, file)
-                print(f"Processing: {file_path}")
+        for provider in providers:
+            provider_path = self.results_dir / provider
+            if not provider_path.exists():
+                continue
                 
+            for csv_file in provider_path.glob('*.csv'):
                 try:
-                    with open(file_path, 'r', newline='') as csvfile:
-                        reader = csv.DictReader(csvfile)
-                        
-                        for row_num, row in enumerate(reader, 2):  # Start at 2 since header is row 1
-                            try:
-                                protocol, server, dnssec_status, keepalive_status = extract_server_info(file_path, row)
-                                
-                                if protocol and server:
-                                    resolver = map_server_to_resolver(server)
-                                    duration_ms = float(row.get('duration_ms', 0))
-                                    
-                                    # Only include successful queries
-                                    if row.get('response_code', '') in ['NOERROR', '']:
-                                        key = (resolver, protocol, dnssec_status, keepalive_status)
-                                        measurements[key].append(duration_ms)
-                                    
-                            except (ValueError, TypeError) as e:
-                                print(f"Data parse error in {file_path} row {row_num}: {e}")
-                                continue
-                                
+                    df = pd.read_csv(csv_file)
+                    df['provider'] = provider
+                    df['test_config'] = csv_file.stem
+                    data_frames.append(df)
                 except Exception as e:
-                    print(f"Error processing file {file_path}: {e}")
-                    continue
-    
-    # Calculate statistics grouped by resolver first, then by configuration
-    resolver_results = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
-    
-    for (resolver, protocol, dnssec, keepalive), durations in measurements.items():
-        if durations:
-            stats = {
-                'protocol': protocol.upper(),
-                'dnssec': dnssec,
-                'keepalive': keepalive,
-                'total_queries': len(durations),
-                'avg_latency_ms': round(statistics.mean(durations), 3),
-                'median_latency_ms': round(statistics.median(durations), 3),
-                'min_latency_ms': round(min(durations), 3),
-                'max_latency_ms': round(max(durations), 3),
-                'std_dev_ms': round(statistics.stdev(durations) if len(durations) > 1 else 0, 3),
-                'p95_latency_ms': round(statistics.quantiles(durations, n=20)[18], 3) if len(durations) >= 20 else round(max(durations), 3),
-                'p99_latency_ms': round(statistics.quantiles(durations, n=100)[98], 3) if len(durations) >= 100 else round(max(durations), 3)
-            }
-            # Group by resolver -> dnssec -> keepalive -> protocol
-            resolver_results[resolver][dnssec][keepalive].append(stats)
-    
-    # Sort each configuration's results by average latency
-    for resolver in resolver_results:
-        for dnssec in resolver_results[resolver]:
-            for keepalive in resolver_results[resolver][dnssec]:
-                resolver_results[resolver][dnssec][keepalive].sort(key=lambda x: x['avg_latency_ms'])
-    
-    # Write to CSV with all data
-    all_results = []
-    for resolver in resolver_results:
-        for dnssec in resolver_results[resolver]:
-            for keepalive in resolver_results[resolver][dnssec]:
-                for result in resolver_results[resolver][dnssec][keepalive]:
-                    result['resolver'] = resolver
-                    all_results.append(result)
-    
-    with open(output_file, 'w', newline='') as csvfile:
-        fieldnames = [
-            'resolver', 'protocol', 'dnssec', 'keepalive', 'total_queries',
-            'avg_latency_ms', 'median_latency_ms', 'min_latency_ms', 
-            'max_latency_ms', 'std_dev_ms', 'p95_latency_ms', 'p99_latency_ms'
-        ]
+                    print(f"Error loading {csv_file}: {e}")
         
-        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-        writer.writeheader()
-        writer.writerows(all_results)
-    
-    print(f"\nAnalysis complete! Full results written to {output_file}")
-    print(f"Total measurements: {sum(len(durations) for durations in measurements.values())}")
-    
-    def print_configuration_table(resolver, dnssec_status, keepalive_status, results):
-        """Print a formatted table for a specific configuration"""
-        ka_indicator = "PERSISTENT" if keepalive_status == 'on' else "NEW CONN"
-        dnssec_display = get_dnssec_display_name(dnssec_status)
+        self.df = pd.concat(data_frames, ignore_index=True)
+        self._clean_and_enrich_data()
+        print(f"Loaded {len(self.df)} DNS queries across {len(data_frames)} test configurations")
         
-        print(f"\n  {dnssec_display} - {ka_indicator}")
-        print("  " + "-" * 90)
-        print(f"  {'Protocol':<12} {'Queries':<8} {'Avg(ms)':<10} {'Median(ms)':<12} {'Min(ms)':<10} {'Max(ms)':<10} {'P95(ms)':<10}")
-        print("  " + "-" * 90)
+    def _clean_and_enrich_data(self):
+        """Clean data and add useful columns"""
+        # Remove failed queries
+        self.df = self.df[self.df['error'].isna()]
         
-        for result in results:
-            print(f"  {result['protocol']:<12} {result['total_queries']:<8} "
-                  f"{result['avg_latency_ms']:<10} {result['median_latency_ms']:<12} "
-                  f"{result['min_latency_ms']:<10} {result['max_latency_ms']:<10} "
-                  f"{result['p95_latency_ms']:<10}")
-    
-    # Print results grouped by resolver first
-    print(f"\n{'=' * 100}")
-    print("DNS RESOLVER PERFORMANCE COMPARISON")
-    print(f"{'=' * 100}")
-    
-    for resolver in sorted(resolver_results.keys()):
-        print(f"\n{resolver} DNS Resolver")
-        print("=" * 100)
+        # Extract protocol base (remove -auth, -trust suffixes)
+        self.df['protocol_base'] = self.df['protocol'].str.replace('-auth|-trust', '', regex=True)
         
-        # Order configurations logically
-        config_order = [
-            ('off', 'off'),     # No DNSSEC, New connections
-            ('off', 'on'),      # No DNSSEC, Persistent
-            ('trust', 'off'),   # Trust DNSSEC, New connections  
-            ('trust', 'on'),    # Trust DNSSEC, Persistent
-            ('auth', 'off'),    # Auth DNSSEC, New connections
-            ('auth', 'on'),     # Auth DNSSEC, Persistent
-        ]
+        # DNSSEC configuration
+        self.df['dnssec_mode'] = 'none'
+        self.df.loc[self.df['auth_dnssec'] == True, 'dnssec_mode'] = 'auth'
+        self.df.loc[(self.df['dnssec'] == True) & (self.df['auth_dnssec'] == False), 'dnssec_mode'] = 'trust'
         
-        for dnssec_status, keepalive_status in config_order:
-            if dnssec_status in resolver_results[resolver] and keepalive_status in resolver_results[resolver][dnssec_status]:
-                results = resolver_results[resolver][dnssec_status][keepalive_status]
-                if results:  # Only print if there are results
-                    print_configuration_table(resolver, dnssec_status, keepalive_status, results)
-    
-    # Summary comparison across resolvers
-    print(f"\n{'=' * 100}")
-    print("CROSS-RESOLVER PROTOCOL COMPARISON")
-    print(f"{'=' * 100}")
-    
-    # Group by protocol and configuration for cross-resolver comparison
-    protocol_comparison = defaultdict(lambda: defaultdict(list))
-    
-    for resolver in resolver_results:
-        for dnssec in resolver_results[resolver]:
-            for keepalive in resolver_results[resolver][dnssec]:
-                for result in resolver_results[resolver][dnssec][keepalive]:
-                    config_key = f"{get_dnssec_display_name(dnssec)} - {'PERSISTENT' if keepalive == 'on' else 'NEW CONN'}"
-                    protocol_comparison[result['protocol']][config_key].append({
-                        'resolver': resolver,
-                        'avg_latency_ms': result['avg_latency_ms'],
-                        'total_queries': result['total_queries']
-                    })
-    
-    for protocol in sorted(protocol_comparison.keys()):
-        print(f"\n{protocol} Protocol Comparison")
-        print("-" * 100)
+        # Protocol categories
+        self.df['protocol_category'] = self.df['protocol_base'].map({
+            'udp': 'Plain DNS',
+            'tls': 'DoT',
+            'https': 'DoH',
+            'doh3': 'DoH/3',
+            'doq': 'DoQ'
+        })
         
-        for config in sorted(protocol_comparison[protocol].keys()):
-            resolvers_data = protocol_comparison[protocol][config]
-            if resolvers_data:
-                print(f"\n  {config}")
-                print("  " + "-" * 60)
-                print(f"  {'Resolver':<15} {'Avg Latency (ms)':<20} {'Queries':<10}")
-                print("  " + "-" * 60)
-                
-                # Sort by average latency
-                resolvers_data.sort(key=lambda x: x['avg_latency_ms'])
-                
-                for data in resolvers_data:
-                    print(f"  {data['resolver']:<15} {data['avg_latency_ms']:<20} {data['total_queries']:<10}")
+        # Connection persistence
+        self.df['persistence'] = self.df['keep_alive'].fillna(False)
+        
+    def generate_summary_statistics(self):
+        """Generate comprehensive summary statistics"""
+        print("\n" + "="*80)
+        print("SUMMARY STATISTICS")
+        print("="*80)
+        
+        # Overall statistics
+        print("\n--- Overall Performance ---")
+        print(f"Total queries: {len(self.df)}")
+        print(f"Mean latency: {self.df['duration_ms'].mean():.2f} ms")
+        print(f"Median latency: {self.df['duration_ms'].median():.2f} ms")
+        print(f"95th percentile: {self.df['duration_ms'].quantile(0.95):.2f} ms")
+        print(f"99th percentile: {self.df['duration_ms'].quantile(0.99):.2f} ms")
+        
+        # By protocol
+        print("\n--- Performance by Protocol ---")
+        protocol_stats = self.df.groupby('protocol_category')['duration_ms'].agg([
+            ('count', 'count'),
+            ('mean', 'mean'),
+            ('median', 'median'),
+            ('std', 'std'),
+            ('p95', lambda x: x.quantile(0.95)),
+            ('p99', lambda x: x.quantile(0.99))
+        ]).round(2)
+        print(protocol_stats)
+        
+        # By provider
+        print("\n--- Performance by Provider ---")
+        provider_stats = self.df.groupby('provider')['duration_ms'].agg([
+            ('count', 'count'),
+            ('mean', 'mean'),
+            ('median', 'median'),
+            ('std', 'std'),
+            ('p95', lambda x: x.quantile(0.95))
+        ]).round(2)
+        print(provider_stats)
+        
+        # DNSSEC impact
+        print("\n--- DNSSEC Validation Impact ---")
+        dnssec_stats = self.df.groupby('dnssec_mode')['duration_ms'].agg([
+            ('count', 'count'),
+            ('mean', 'mean'),
+            ('median', 'median'),
+            ('overhead_vs_none', lambda x: x.mean())
+        ]).round(2)
+        
+        # Calculate overhead percentage
+        baseline = dnssec_stats.loc['none', 'mean'] if 'none' in dnssec_stats.index else 0
+        if baseline > 0:
+            dnssec_stats['overhead_pct'] = ((dnssec_stats['overhead_vs_none'] - baseline) / baseline * 100).round(1)
+        print(dnssec_stats)
+        
+        # Bandwidth analysis
+        print("\n--- Bandwidth Usage ---")
+        bandwidth_stats = self.df.groupby('protocol_category').agg({
+            'request_size_bytes': ['mean', 'median'],
+            'response_size_bytes': ['mean', 'median']
+        }).round(2)
+        print(bandwidth_stats)
+        
+        # Persistence impact (where applicable)
+        print("\n--- Connection Persistence Impact ---")
+        persist_protocols = self.df[self.df['protocol_base'].isin(['tls', 'https'])]
+        if len(persist_protocols) > 0:
+            persist_stats = persist_protocols.groupby(['protocol_base', 'persistence'])['duration_ms'].agg([
+                ('mean', 'mean'),
+                ('median', 'median')
+            ]).round(2)
+            print(persist_stats)
+        
+        return {
+            'protocol': protocol_stats,
+            'provider': provider_stats,
+            'dnssec': dnssec_stats,
+            'bandwidth': bandwidth_stats
+        }
+    
+    def plot_latency_by_protocol(self, output_dir='plots'):
+        """Violin plot of latency distribution by protocol"""
+        Path(output_dir).mkdir(exist_ok=True)
+        
+        plt.figure(figsize=(14, 7))
+        
+        # Order protocols logically
+        protocol_order = ['Plain DNS', 'DoT', 'DoH', 'DoH/3', 'DoQ']
+        available_protocols = [p for p in protocol_order if p in self.df['protocol_category'].values]
+        
+        sns.violinplot(data=self.df, x='protocol_category', y='duration_ms', 
+                      order=available_protocols, inner='box', cut=0)
+        
+        plt.title('DNS Query Latency Distribution by Protocol', fontsize=14, fontweight='bold')
+        plt.xlabel('Protocol', fontsize=12)
+        plt.ylabel('Response Time (ms)', fontsize=12)
+        plt.xticks(rotation=0)
+        
+        # Add mean values as annotations
+        for i, protocol in enumerate(available_protocols):
+            mean_val = self.df[self.df['protocol_category'] == protocol]['duration_ms'].mean()
+            plt.text(i, mean_val, f'{mean_val:.1f}', ha='center', va='bottom', fontweight='bold')
+        
+        plt.tight_layout()
+        plt.savefig(f'{output_dir}/latency_by_protocol.png', bbox_inches='tight')
+        plt.close()
+        print(f"✓ Saved: latency_by_protocol.png")
+    
+    def plot_provider_comparison(self, output_dir='plots'):
+        """Box plot comparing providers across protocols"""
+        Path(output_dir).mkdir(exist_ok=True)
+        
+        fig, axes = plt.subplots(2, 2, figsize=(16, 12))
+        fig.suptitle('Provider Performance Comparison by Protocol', fontsize=16, fontweight='bold')
+        
+        protocols = self.df['protocol_category'].unique()
+        protocols = [p for p in ['Plain DNS', 'DoT', 'DoH', 'DoH/3'] if p in protocols]
+        
+        for idx, protocol in enumerate(protocols[:4]):
+            ax = axes[idx // 2, idx % 2]
+            data = self.df[self.df['protocol_category'] == protocol]
+            
+            if len(data) > 0:
+                sns.boxplot(data=data, x='provider', y='duration_ms', ax=ax)
+                ax.set_title(f'{protocol}', fontsize=12, fontweight='bold')
+                ax.set_xlabel('Provider', fontsize=10)
+                ax.set_ylabel('Response Time (ms)', fontsize=10)
+                ax.tick_params(axis='x', rotation=45)
+        
+        plt.tight_layout()
+        plt.savefig(f'{output_dir}/provider_comparison.png', bbox_inches='tight')
+        plt.close()
+        print(f"✓ Saved: provider_comparison.png")
+    
+    def plot_dnssec_impact(self, output_dir='plots'):
+        """Compare DNSSEC validation methods (trust vs auth)"""
+        Path(output_dir).mkdir(exist_ok=True)
+        
+        # Filter for protocols that have DNSSEC variations
+        dnssec_data = self.df[self.df['dnssec_mode'] != 'none'].copy()
+        
+        if len(dnssec_data) == 0:
+            print("⚠ No DNSSEC data available")
+            return
+        
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
+        
+        # Plot 1: Overall DNSSEC impact
+        protocol_order = ['Plain DNS', 'DoT', 'DoH', 'DoH/3', 'DoQ']
+        available = [p for p in protocol_order if p in self.df['protocol_category'].values]
+        
+        sns.barplot(data=self.df, x='protocol_category', y='duration_ms', 
+                   hue='dnssec_mode', order=available, ax=ax1, ci=95)
+        ax1.set_title('DNSSEC Validation Overhead by Protocol', fontsize=12, fontweight='bold')
+        ax1.set_xlabel('Protocol', fontsize=10)
+        ax1.set_ylabel('Mean Response Time (ms)', fontsize=10)
+        ax1.legend(title='DNSSEC Mode', labels=['No DNSSEC', 'Auth (Full)', 'Trust (Resolver)'])
+        ax1.tick_params(axis='x', rotation=0)
+        
+        # Plot 2: Trust vs Auth comparison
+        comparison_data = dnssec_data.groupby(['protocol_category', 'dnssec_mode'])['duration_ms'].mean().reset_index()
+        pivot_data = comparison_data.pivot(index='protocol_category', columns='dnssec_mode', values='duration_ms')
+        
+        if 'auth' in pivot_data.columns and 'trust' in pivot_data.columns:
+            pivot_data['overhead_pct'] = ((pivot_data['auth'] - pivot_data['trust']) / pivot_data['trust'] * 100)
+            pivot_data['overhead_pct'].plot(kind='bar', ax=ax2, color='coral')
+            ax2.set_title('Auth vs Trust: Additional Overhead (%)', fontsize=12, fontweight='bold')
+            ax2.set_xlabel('Protocol', fontsize=10)
+            ax2.set_ylabel('Additional Overhead (%)', fontsize=10)
+            ax2.axhline(y=0, color='black', linestyle='--', linewidth=0.8)
+            ax2.tick_params(axis='x', rotation=45)
+            ax2.grid(axis='y', alpha=0.3)
+        
+        plt.tight_layout()
+        plt.savefig(f'{output_dir}/dnssec_impact.png', bbox_inches='tight')
+        plt.close()
+        print(f"✓ Saved: dnssec_impact.png")
+    
+    def plot_persistence_impact(self, output_dir='plots'):
+        """Analyze impact of connection persistence"""
+        Path(output_dir).mkdir(exist_ok=True)
+        
+        persist_data = self.df[self.df['protocol_base'].isin(['tls', 'https'])].copy()
+        
+        if len(persist_data) == 0:
+            print("⚠ No persistence data available")
+            return
+        
+        plt.figure(figsize=(12, 6))
+        
+        sns.barplot(data=persist_data, x='protocol_base', y='duration_ms', 
+                   hue='persistence', ci=95)
+        
+        plt.title('Impact of Connection Persistence on Latency', fontsize=14, fontweight='bold')
+        plt.xlabel('Protocol', fontsize=12)
+        plt.ylabel('Mean Response Time (ms)', fontsize=12)
+        plt.legend(title='Keep-Alive', labels=['Disabled', 'Enabled'])
+        
+        # Calculate and annotate overhead reduction
+        for protocol in persist_data['protocol_base'].unique():
+            protocol_data = persist_data[persist_data['protocol_base'] == protocol]
+            
+            no_persist = protocol_data[protocol_data['persistence'] == False]['duration_ms'].mean()
+            with_persist = protocol_data[protocol_data['persistence'] == True]['duration_ms'].mean()
+            
+            if not np.isnan(no_persist) and not np.isnan(with_persist):
+                reduction = ((no_persist - with_persist) / no_persist * 100)
+                print(f"{protocol}: {reduction:.1f}% reduction with persistence")
+        
+        plt.tight_layout()
+        plt.savefig(f'{output_dir}/persistence_impact.png', bbox_inches='tight')
+        plt.close()
+        print(f"✓ Saved: persistence_impact.png")
+    
+    def plot_bandwidth_overhead(self, output_dir='plots'):
+        """Visualize bandwidth usage by protocol"""
+        Path(output_dir).mkdir(exist_ok=True)
+        
+        bandwidth_data = self.df.groupby('protocol_category').agg({
+            'request_size_bytes': 'mean',
+            'response_size_bytes': 'mean'
+        }).reset_index()
+        
+        bandwidth_data['total_bytes'] = (bandwidth_data['request_size_bytes'] + 
+                                         bandwidth_data['response_size_bytes'])
+        
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
+        
+        # Plot 1: Request vs Response sizes
+        x = np.arange(len(bandwidth_data))
+        width = 0.35
+        
+        ax1.bar(x - width/2, bandwidth_data['request_size_bytes'], width, 
+               label='Request', alpha=0.8)
+        ax1.bar(x + width/2, bandwidth_data['response_size_bytes'], width, 
+               label='Response', alpha=0.8)
+        
+        ax1.set_xlabel('Protocol', fontsize=12)
+        ax1.set_ylabel('Bytes', fontsize=12)
+        ax1.set_title('Average Request/Response Sizes', fontsize=12, fontweight='bold')
+        ax1.set_xticks(x)
+        ax1.set_xticklabels(bandwidth_data['protocol_category'])
+        ax1.legend()
+        ax1.grid(axis='y', alpha=0.3)
+        
+        # Plot 2: Total bandwidth overhead vs UDP baseline
+        udp_total = bandwidth_data[bandwidth_data['protocol_category'] == 'Plain DNS']['total_bytes'].values
+        if len(udp_total) > 0:
+            bandwidth_data['overhead_vs_udp'] = ((bandwidth_data['total_bytes'] - udp_total[0]) / udp_total[0] * 100)
+            
+            colors = ['green' if x < 0 else 'red' for x in bandwidth_data['overhead_vs_udp']]
+            ax2.bar(bandwidth_data['protocol_category'], bandwidth_data['overhead_vs_udp'], 
+                   color=colors, alpha=0.7)
+            ax2.axhline(y=0, color='black', linestyle='--', linewidth=0.8)
+            ax2.set_xlabel('Protocol', fontsize=12)
+            ax2.set_ylabel('Overhead vs Plain DNS (%)', fontsize=12)
+            ax2.set_title('Bandwidth Overhead', fontsize=12, fontweight='bold')
+            ax2.grid(axis='y', alpha=0.3)
+        
+        plt.tight_layout()
+        plt.savefig(f'{output_dir}/bandwidth_overhead.png', bbox_inches='tight')
+        plt.close()
+        print(f"✓ Saved: bandwidth_overhead.png")
+    
+    def plot_heatmap(self, output_dir='plots'):
+        """Heatmap of provider-protocol performance"""
+        Path(output_dir).mkdir(exist_ok=True)
+        
+        # Create pivot table
+        heatmap_data = self.df.groupby(['provider', 'protocol_category'])['duration_ms'].median().unstack()
+        
+        plt.figure(figsize=(12, 8))
+        sns.heatmap(heatmap_data, annot=True, fmt='.1f', cmap='RdYlGn_r', 
+                   cbar_kws={'label': 'Median Latency (ms)'})
+        
+        plt.title('DNS Provider-Protocol Performance Matrix', fontsize=14, fontweight='bold')
+        plt.xlabel('Protocol', fontsize=12)
+        plt.ylabel('Provider', fontsize=12)
+        
+        plt.tight_layout()
+        plt.savefig(f'{output_dir}/provider_protocol_heatmap.png', bbox_inches='tight')
+        plt.close()
+        print(f"✓ Saved: provider_protocol_heatmap.png")
+    
+    def plot_percentile_comparison(self, output_dir='plots'):
+        """Plot percentile comparison across protocols"""
+        Path(output_dir).mkdir(exist_ok=True)
+        
+        percentiles = [50, 75, 90, 95, 99]
+        protocol_order = ['Plain DNS', 'DoT', 'DoH', 'DoH/3', 'DoQ']
+        available = [p for p in protocol_order if p in self.df['protocol_category'].values]
+        
+        percentile_data = []
+        for protocol in available:
+            data = self.df[self.df['protocol_category'] == protocol]['duration_ms']
+            for p in percentiles:
+                percentile_data.append({
+                    'protocol': protocol,
+                    'percentile': f'P{p}',
+                    'latency': np.percentile(data, p)
+                })
+        
+        percentile_df = pd.DataFrame(percentile_data)
+        
+        plt.figure(figsize=(14, 7))
+        sns.barplot(data=percentile_df, x='protocol', y='latency', hue='percentile', order=available)
+        
+        plt.title('Latency Percentiles by Protocol', fontsize=14, fontweight='bold')
+        plt.xlabel('Protocol', fontsize=12)
+        plt.ylabel('Response Time (ms)', fontsize=12)
+        plt.legend(title='Percentile', bbox_to_anchor=(1.05, 1), loc='upper left')
+        
+        plt.tight_layout()
+        plt.savefig(f'{output_dir}/percentile_comparison.png', bbox_inches='tight')
+        plt.close()
+        print(f"✓ Saved: percentile_comparison.png")
+    
+    def statistical_tests(self):
+        """Perform statistical significance tests"""
+        print("\n" + "="*80)
+        print("STATISTICAL TESTS")
+        print("="*80)
+        
+        # Test 1: Protocol differences (Kruskal-Wallis)
+        protocols = self.df['protocol_category'].unique()
+        if len(protocols) > 2:
+            groups = [self.df[self.df['protocol_category'] == p]['duration_ms'].values 
+                     for p in protocols]
+            h_stat, p_value = stats.kruskal(*groups)
+            print(f"\n--- Kruskal-Wallis Test (Protocol Differences) ---")
+            print(f"H-statistic: {h_stat:.4f}")
+            print(f"p-value: {p_value:.4e}")
+            print(f"Result: {'Significant' if p_value < 0.05 else 'Not significant'} differences between protocols")
+        
+        # Test 2: DNSSEC impact (Mann-Whitney U)
+        if 'none' in self.df['dnssec_mode'].values and 'auth' in self.df['dnssec_mode'].values:
+            none_data = self.df[self.df['dnssec_mode'] == 'none']['duration_ms']
+            auth_data = self.df[self.df['dnssec_mode'] == 'auth']['duration_ms']
+            
+            u_stat, p_value = stats.mannwhitneyu(none_data, auth_data, alternative='two-sided')
+            print(f"\n--- Mann-Whitney U Test (No DNSSEC vs Auth) ---")
+            print(f"U-statistic: {u_stat:.4f}")
+            print(f"p-value: {p_value:.4e}")
+            print(f"Result: {'Significant' if p_value < 0.05 else 'Not significant'} difference")
+        
+        # Test 3: Trust vs Auth comparison
+        if 'trust' in self.df['dnssec_mode'].values and 'auth' in self.df['dnssec_mode'].values:
+            trust_data = self.df[self.df['dnssec_mode'] == 'trust']['duration_ms']
+            auth_data = self.df[self.df['dnssec_mode'] == 'auth']['duration_ms']
+            
+            u_stat, p_value = stats.mannwhitneyu(trust_data, auth_data, alternative='two-sided')
+            print(f"\n--- Mann-Whitney U Test (Trust vs Auth) ---")
+            print(f"U-statistic: {u_stat:.4f}")
+            print(f"p-value: {p_value:.4e}")
+            print(f"Result: Auth is {'significantly' if p_value < 0.05 else 'not significantly'} slower than Trust")
+    
+    def generate_latex_table(self, output_dir='plots'):
+        """Generate LaTeX table for thesis"""
+        Path(output_dir).mkdir(exist_ok=True)
+        
+        # Summary table by protocol
+        summary = self.df.groupby('protocol_category')['duration_ms'].agg([
+            ('Mean', 'mean'),
+            ('Median', 'median'),
+            ('Std Dev', 'std'),
+            ('P95', lambda x: x.quantile(0.95)),
+            ('P99', lambda x: x.quantile(0.99))
+        ]).round(2)
+        
+        latex_code = summary.to_latex(float_format="%.2f")
+        
+        with open(f'{output_dir}/summary_table.tex', 'w') as f:
+            f.write(latex_code)
+        
+        print(f"✓ Saved: summary_table.tex")
+        print("\nLaTeX Table Preview:")
+        print(latex_code)
+    
+    def run_full_analysis(self):
+        """Run complete analysis pipeline"""
+        print("="*80)
+        print("DNS QoS Analysis - Starting Full Analysis")
+        print("="*80)
+        
+        # Load data
+        print("\n[1/10] Loading data...")
+        self.load_all_data()
+        
+        # Generate statistics
+        print("\n[2/10] Generating summary statistics...")
+        self.generate_summary_statistics()
+        
+        # Statistical tests
+        print("\n[3/10] Running statistical tests...")
+        self.statistical_tests()
+        
+        # Generate plots
+        print("\n[4/10] Creating latency by protocol plot...")
+        self.plot_latency_by_protocol()
+        
+        print("\n[5/10] Creating provider comparison plot...")
+        self.plot_provider_comparison()
+        
+        print("\n[6/10] Creating DNSSEC impact plot...")
+        self.plot_dnssec_impact()
+        
+        print("\n[7/10] Creating persistence impact plot...")
+        self.plot_persistence_impact()
+        
+        print("\n[8/10] Creating bandwidth overhead plot...")
+        self.plot_bandwidth_overhead()
+        
+        print("\n[9/10] Creating heatmap...")
+        self.plot_heatmap()
+        
+        print("\n[10/10] Creating percentile comparison...")
+        self.plot_percentile_comparison()
+        
+        # Generate LaTeX table
+        print("\n[Bonus] Generating LaTeX table...")
+        self.generate_latex_table()
+        
+        print("\n" + "="*80)
+        print("✓ Analysis Complete! Check the 'plots' directory for all visualizations.")
+        print("="*80)
+
 
 if __name__ == "__main__":
-    root_dir = "."
-    output_file = "dns_metrics.csv"
-    
-    analyze_dns_data(root_dir, output_file)
+    analyzer = DNSAnalyzer(results_dir='results')
+    analyzer.run_full_analysis()
