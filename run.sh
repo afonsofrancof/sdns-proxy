@@ -70,30 +70,36 @@ echo ""
 
 # Connection-based protocols that benefit from keep-alive (TCP-based)
 CONN_SERVERS=(
-    -s "tls://8.8.8.8:853"
-    -s "tls://1.1.1.1:853"
-    -s "tls://9.9.9.9:853"
-    -s "tls://dns.adguard-dns.com:853"
-    -s "https://dns.google/dns-query"
-    -s "https://cloudflare-dns.com/dns-query"
-    -s "https://dns10.quad9.net/dns-query"
-    -s "https://dns.adguard-dns.com/dns-query"
+    -s "dotcp://8.8.8.8:53"
+    -s "dotcp://1.1.1.1:53"
+    -s "dotcp://9.9.9.9:53"
+    -s "dotcp://dns.adguard-dns.com:53"
+    #-s "tls://8.8.8.8:853"
+    #-s "tls://1.1.1.1:853"
+    #-s "tls://9.9.9.9:853"
+    #-s "tls://dns.adguard-dns.com:853"
+    #-s "https://dns.google/dns-query"
+    #-s "https://cloudflare-dns.com/dns-query"
+    #-s "https://dns10.quad9.net/dns-query"
+    #-s "https://dns.adguard-dns.com/dns-query"
 )
 
 # QUIC-based protocols (have built-in 0-RTT, keep-alive doesn't add value)
 QUIC_SERVERS=(
-    -s "doh3://dns.google/dns-query"
-    -s "doh3://cloudflare-dns.com/dns-query"
-    -s "doh3://dns.adguard-dns.com/dns-query"
-    -s "doq://dns.adguard-dns.com:853"
+    #-s "doh3://dns.google/dns-query"
+    #-s "doh3://cloudflare-dns.com/dns-query"
+    #-s "doh3://dns.adguard-dns.com/dns-query"
+    #-s "doq://dns.adguard-dns.com:853"
 )
 
 # Connectionless protocols (no keep-alive)
 CONNLESS_SERVERS=(
-    -s "udp://8.8.8.8:53"
-    -s "udp://1.1.1.1:53"
-    -s "udp://9.9.9.9:53"
-    -s "udp://dns.adguard-dns.com:53"
+    # -s "udp://8.8.8.8:53"
+    # -s "udp://1.1.1.1:53"
+    # -s "udp://9.9.9.9:53"
+    # -s "udp://dns.adguard-dns.com:53"
+    -s "sdns://AQMAAAAAAAAAETk0LjE0MC4xNC4xNDo1NDQzINErR_JS3PLCu_iZEIbq95zkSV2LFsigxDIuUso_OQhzIjIuZG5zY3J5cHQuZGVmYXVsdC5uczEuYWRndWFyZC5jb20"
+    -s "sdns://AQMAAAAAAAAAFDE0OS4xMTIuMTEyLjExMjo4NDQzIGfIR7jIdYzRICRVQ751Z0bfNN8dhMALjEcDaN-CHYY-GTIuZG5zY3J5cHQtY2VydC5xdWFkOS5uZXQ"
 )
 
 # Common args
@@ -140,7 +146,7 @@ for FLAGS in "${CONN_COMBINATIONS[@]}"; do
         --output-dir "$OUTPUT_DIR" \
         "${COMMON_ARGS[@]}" \
         "${CONN_SERVERS[@]}" \
-        "${FLAGS_ARRAY[@]}"
+        "${FLAGS_ARRAY[@]}" || true
     
     sleep "$SLEEP_TIME"
 done
@@ -156,7 +162,7 @@ for FLAGS in "${NO_KEEPALIVE_COMBINATIONS[@]}"; do
         --output-dir "$OUTPUT_DIR" \
         "${COMMON_ARGS[@]}" \
         "${QUIC_SERVERS[@]}" \
-        "${FLAGS_ARRAY[@]}"
+        "${FLAGS_ARRAY[@]}" || true
     
     sleep "$SLEEP_TIME"
 done
@@ -172,7 +178,7 @@ for FLAGS in "${NO_KEEPALIVE_COMBINATIONS[@]}"; do
         --output-dir "$OUTPUT_DIR" \
         "${COMMON_ARGS[@]}" \
         "${CONNLESS_SERVERS[@]}" \
-        "${FLAGS_ARRAY[@]}"
+        "${FLAGS_ARRAY[@]}" || true
     
     sleep "$SLEEP_TIME"
 done

@@ -51,6 +51,7 @@ func cleanServerName(server string) string {
 		"149.112.112.112":       "quad9",
 		"dns.quad9.net":         "quad9",
 		"dns10.quad9.net":       "quad9",
+		"AQMAAAAAAAAAFDE0OS4xMTIuMTEyLjExMjo4NDQzIGfIR7jIdYzRICRVQ751Z0bfNN8dhMALjEcDaN-CHYY-GTIuZG5zY3J5cHQtY2VydC5xdWFkOS5uZXQ": "quad9",
 		"208.67.222.222":        "opendns",
 		"208.67.220.220":        "opendns",
 		"resolver1.opendns.com": "opendns",
