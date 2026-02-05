@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/pcap"
@@ -20,7 +21,7 @@ type PacketCapture struct {
 }
 
 func NewPacketCapture(iface, outputPath string) (*PacketCapture, error) {
-	handle, err := pcap.OpenLive(iface, 65535, true, pcap.BlockForever)
+	handle, err := pcap.OpenLive(iface, 65535, true, 1000*time.Millisecond)
 	if err != nil {
 		return nil, fmt.Errorf("pcap open (try running as root): %w", err)
 	}
