@@ -15,6 +15,15 @@ import dpkt
 from dateutil import parser as date_parser
 
 
+BANDWIDTH_COLUMNS = [
+    'bytes_sent',
+    'bytes_received',
+    'packets_sent',
+    'packets_received',
+    'total_bytes',
+]
+
+
 class Packet(NamedTuple):
     """Lightweight packet representation."""
     timestamp: float
@@ -34,6 +43,36 @@ class QueryWindow:
         self.received = 0
         self.pkts_sent = 0
         self.pkts_received = 0
+
+
+def is_already_processed(csv_path: Path) -> bool:
+    """
+    Check if CSV has already been processed.
+    Returns True if bandwidth columns exist AND at least one row has non-zero data.
+    """
+    try:
+        with open(csv_path, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            
+            # Check if columns exist
+            if not reader.fieldnames:
+                return False
+            
+            if not all(col in reader.fieldnames for col in BANDWIDTH_COLUMNS):
+                return False
+            
+            # Check if any row has non-zero bandwidth data
+            for row in reader:
+                for col in BANDWIDTH_COLUMNS:
+                    val = row.get(col, '').strip()
+                    if val and val != '0':
+                        return True
+            
+            # All rows have zero/empty values - not truly processed
+            return False
+            
+    except Exception:
+        return False
 
 
 def parse_csv_timestamp(ts_str: str) -> float:
@@ -249,24 +288,20 @@ def write_enriched_csv(
             shutil.copy2(csv_path, backup_path)
             print(f"  Backup: {backup_path.name}")
     
-    # Get fieldnames
-    original_fields = list(queries[0]['data'].keys())
-    new_fields = [
-        'bytes_sent',
-        'bytes_received',
-        'packets_sent',
-        'packets_received',
-        'total_bytes',
+    # Get fieldnames - filter out any existing bandwidth columns to avoid dupes
+    original_fields = [
+        f for f in queries[0]['data'].keys()
+        if f not in BANDWIDTH_COLUMNS
     ]
-    fieldnames = original_fields + new_fields
+    fieldnames = original_fields + BANDWIDTH_COLUMNS
     
     with open(csv_path, 'w', encoding='utf-8', newline='') as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         
         for q in queries:
-            row = q['data'].copy()
-            for field in new_fields:
+            row = {k: v for k, v in q['data'].items() if k not in BANDWIDTH_COLUMNS}
+            for field in BANDWIDTH_COLUMNS:
                 row[field] = q[field]
             writer.writerow(row)
     
@@ -281,6 +316,7 @@ def process_provider_directory(provider_path: Path):
     
     csv_files = sorted(provider_path.glob('*.csv'))
     processed = 0
+    skipped = 0
     total_time = 0
     
     for csv_path in csv_files:
@@ -292,6 +328,12 @@ def process_provider_directory(provider_path: Path):
         
         if not pcap_path.exists():
             print(f"\n  ⚠ Skipping {csv_path.name} - no matching PCAP")
+            continue
+        
+        # Check if already processed
+        if is_already_processed(csv_path):
+            print(f"\n  ⏭ Skipping {csv_path.name} - already processed")
+            skipped += 1
             continue
         
         print(f"\n  📁 {csv_path.name}")
@@ -323,7 +365,8 @@ def process_provider_directory(provider_path: Path):
         print(f"    ✓ Completed in {file_time:.2f}s")
     
     print(f"\n  {'='*58}")
-    print(f"  {provider_path.name}: {processed} files in {total_time:.2f}s")
+    print(f"  {provider_path.name}: {processed} processed, {skipped} skipped")
+    print(f"  Time: {total_time:.2f}s")
     print(f"  {'='*58}")
 
 

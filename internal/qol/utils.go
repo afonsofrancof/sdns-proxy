@@ -1,4 +1,3 @@
-// ./internal/qol/utils.go
 package qol
 
 import (
@@ -8,7 +7,7 @@ import (
 	"strings"
 )
 
-func GenerateOutputPaths(outputDir, upstream string, dnssec, authDNSSEC, keepAlive bool) (csvPath, pcapPath string) {
+func GenerateOutputPaths(outputDir, upstream string, dnssec, authDNSSEC, keepAlive bool) (csvPath, pcapPath, memPath string) {
 	proto := DetectProtocol(upstream)
 	cleanServer := cleanServerName(upstream)
 
@@ -32,8 +31,10 @@ func GenerateOutputPaths(outputDir, upstream string, dnssec, authDNSSEC, keepAli
 		base = fmt.Sprintf("%s-%s", base, strings.Join(flags, "-"))
 	}
 
-	return filepath.Join(subDir, base+".csv"),
-		filepath.Join(subDir, base+".pcap")
+	csvPath = filepath.Join(subDir, base+".csv")
+	pcapPath = filepath.Join(subDir, base+".pcap")
+	memPath = filepath.Join(subDir, base+".mem.csv")
+	return
 }
 
 func cleanServerName(server string) string {

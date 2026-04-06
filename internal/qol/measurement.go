@@ -12,6 +12,7 @@ import (
 	"github.com/afonsofrancof/sdns-proxy/client"
 	"github.com/afonsofrancof/sdns-proxy/internal/qol/capture"
 	"github.com/afonsofrancof/sdns-proxy/internal/qol/results"
+	"github.com/afonsofrancof/sdns-proxy/internal/qol/stats"
 	"github.com/google/gopacket/pcap"
 	"github.com/miekg/dns"
 )
@@ -86,12 +87,15 @@ func (r *MeasurementRunner) runPerUpstream(upstream string, domains []string, qT
 	defer dnsClient.Close()
 
 	// Setup output files
-	csvPath, pcapPath := GenerateOutputPaths(r.config.OutputDir, upstream, r.config.DNSSEC, r.config.AuthoritativeDNSSEC, r.config.KeepAlive)
+	csvPath, pcapPath, memPath := GenerateOutputPaths(r.config.OutputDir, upstream, r.config.DNSSEC, r.config.AuthoritativeDNSSEC, r.config.KeepAlive)
 
 	// Create directory if it doesn't exist
 	if err := os.MkdirAll(filepath.Dir(csvPath), 0755); err != nil {
 		return fmt.Errorf("failed to create output directory: %w", err)
 	}
+
+	// Initialize runtime collector with memPath
+	runtimeCollector := stats.NewRuntimeCollector(memPath)
 
 	keepAliveStr := ""
 	if r.config.KeepAlive {
@@ -118,7 +122,17 @@ func (r *MeasurementRunner) runPerUpstream(upstream string, domains []string, qT
 
 	time.Sleep(time.Second)
 	// Run measurements
-	return r.runQueries(dnsClient, upstream, domains, qType, writer, packetCapture)
+	err = r.runQueries(dnsClient, upstream, domains, qType, writer, packetCapture)
+	if err != nil {
+		return err
+	}
+
+	// Write summed mem stats for the entire run
+	if err := runtimeCollector.WriteStats(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to write mem stats to %s: %v\n", memPath, err)
+	}
+
+	return nil
 }
 
 func (r *MeasurementRunner) runQueries(dnsClient client.DNSClient, upstream string,
