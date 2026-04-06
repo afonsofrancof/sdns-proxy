@@ -33,7 +33,7 @@ type Client struct {
 
 func New(config Config) (*Client, error) {
 	logger.Debug("Creating DoT client: %s:%s (KeepAlive: %v)", config.Host, config.Port, config.KeepAlive)
-	
+
 	if config.Host == "" {
 		logger.Error("DoT client creation failed: empty host")
 		return nil, fmt.Errorf("dot: Host cannot be empty")
@@ -73,7 +73,7 @@ func (c *Client) Close() {
 	logger.Debug("Closing DoT client")
 	c.connMutex.Lock()
 	defer c.connMutex.Unlock()
-	
+
 	if c.conn != nil {
 		c.conn.Close()
 		c.conn = nil
@@ -91,15 +91,15 @@ func (c *Client) ensureConnection() error {
 			// Try to read one byte to test connection
 			var testBuf [1]byte
 			_, err := c.conn.Read(testBuf[:])
-			
+
 			// Reset deadline
 			c.conn.SetReadDeadline(time.Time{})
-			
+
 			// If we get a timeout error, connection is still good
 			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
 				return nil
 			}
-			
+
 			// Any other error means connection is dead
 			logger.Debug("DoT connection test failed, reconnecting: %v", err)
 			c.conn.Close()
@@ -117,7 +117,7 @@ func (c *Client) ensureConnection() error {
 		logger.Error("DoT connection failed to %s: %v", c.hostAndPort, err)
 		return err
 	}
-	
+
 	c.conn = conn
 	logger.Debug("DoT connection established to %s", c.hostAndPort)
 	return nil
@@ -142,7 +142,7 @@ func (c *Client) Query(msg *dns.Msg) (*dns.Msg, error) {
 			c.conn = nil
 		}
 		c.connMutex.Unlock()
-		
+
 		if err := c.ensureConnection(); err != nil {
 			return nil, fmt.Errorf("dot: failed to create connection: %w", err)
 		}
@@ -175,22 +175,22 @@ func (c *Client) Query(msg *dns.Msg) (*dns.Msg, error) {
 
 	if _, err := conn.Write(data); err != nil {
 		logger.Error("DoT failed to write message to %s: %v", c.hostAndPort, err)
-		
+
 		// If keep-alive is enabled and write failed, try to reconnect once
 		if c.config.KeepAlive {
 			logger.Debug("DoT write failed with keep-alive, attempting reconnect")
 			if reconnectErr := c.ensureConnection(); reconnectErr != nil {
 				return nil, fmt.Errorf("dot: failed to reconnect: %w", reconnectErr)
 			}
-			
+
 			c.connMutex.Lock()
 			conn = c.conn
 			c.connMutex.Unlock()
-			
+
 			if err := conn.SetWriteDeadline(time.Now().Add(c.config.WriteTimeout)); err != nil {
 				return nil, fmt.Errorf("dot: failed to set write deadline after reconnect: %w", err)
 			}
-			
+
 			if _, err := conn.Write(data); err != nil {
 				return nil, fmt.Errorf("dot: failed to write message after reconnect: %w", err)
 			}

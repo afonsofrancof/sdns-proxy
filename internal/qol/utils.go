@@ -40,18 +40,18 @@ func GenerateOutputPaths(outputDir, upstream string, dnssec, authDNSSEC, keepAli
 func cleanServerName(server string) string {
 	// Map common servers to readable names
 	serverMap := map[string]string{
-		"1.1.1.1":               "cloudflare",
-		"1.0.0.1":               "cloudflare",
-		"cloudflare-dns.com":    "cloudflare",
-		"one.one.one.one":       "cloudflare",
-		"8.8.8.8":               "google",
-		"8.8.4.4":               "google",
-		"dns.google":            "google",
-		"dns.google.com":        "google",
-		"9.9.9.9":               "quad9",
-		"149.112.112.112":       "quad9",
-		"dns.quad9.net":         "quad9",
-		"dns10.quad9.net":       "quad9",
+		"1.1.1.1":            "cloudflare",
+		"1.0.0.1":            "cloudflare",
+		"cloudflare-dns.com": "cloudflare",
+		"one.one.one.one":    "cloudflare",
+		"8.8.8.8":            "google",
+		"8.8.4.4":            "google",
+		"dns.google":         "google",
+		"dns.google.com":     "google",
+		"9.9.9.9":            "quad9",
+		"149.112.112.112":    "quad9",
+		"dns.quad9.net":      "quad9",
+		"dns10.quad9.net":    "quad9",
 		"AQMAAAAAAAAAFDE0OS4xMTIuMTEyLjExMjo4NDQzIGfIR7jIdYzRICRVQ751Z0bfNN8dhMALjEcDaN-CHYY-GTIuZG5zY3J5cHQtY2VydC5xdWFkOS5uZXQ": "quad9",
 		"208.67.222.222":        "opendns",
 		"208.67.220.220":        "opendns",
@@ -60,7 +60,7 @@ func cleanServerName(server string) string {
 		"94.140.15.15":          "adguard",
 		"dns.adguard.com":       "adguard",
 		"dns.adguard-dns.com":   "adguard",
-		"AQMAAAAAAAAAETk0LjE0MC4xNS4xNTo1NDQzINErR_JS3PLCu_iZEIbq95zkSV2LFsigxDIuUso_OQhzIjIuZG5zY3J5cHQuZGVmYXVsdC5uczEuYWRndWFyZC5jb20": "adguard",
+		"AQMAAAAAAAAAETk0LjE0MC4xNC4xNDo1NDQzINErR_JS3PLCu_iZEIbq95zkSV2LFsigxDIuUso_OQhzIjIuZG5zY3J5cHQuZGVmYXVsdC5uczEuYWRndWFyZC5jb20": "adguard",
 	}
 
 	serverName := ""

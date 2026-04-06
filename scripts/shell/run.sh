@@ -137,11 +137,20 @@ run_with_perf() {
     if [[ -n "$suffix" ]]; then
         base_name="${name}-${suffix}"
     fi
-    local cpu_csv_file="$OUTPUT_DIR/${name%%-*}/${base_name}.cpu.csv"  # e.g., results/cloudflare/dot-trust-persist.cpu.csv
+    local provider="${name%%-*}"
+    local protocol="${name#*-}"
+    local base_name="${protocol}"
+    if [[ -n "$suffix" ]]; then
+        base_name="${protocol}-${suffix}"
+    fi
+    local cpu_csv_file="$OUTPUT_DIR/${provider}/${base_name}.cpu.csv"
+
+    # Create directory if needed
+    mkdir -p "$(dirname "$cpu_csv_file")"
     
     # Write header if needed
     if [[ ! -f "$cpu_csv_file" ]]; then
-        echo "timestamp,wall_time_seconds,instructions,cycles,peak_rss_kb" > "$cpu_csv_file"
+        echo "timestamp,wall_time_seconds,instructions,cycles" > "$cpu_csv_file"
     fi
     
     # Build command arguments
@@ -156,7 +165,7 @@ run_with_perf() {
     if [[ "$dnssec" == "true" ]]; then
         cmd_args+=(--dnssec)
         if [[ "$auth" == "true" ]]; then
-            cmd_args+=(--auth-dnssec)
+            cmd_args+=(--authoritative-dnssec)
         fi
     fi
     
@@ -164,31 +173,26 @@ run_with_perf() {
         cmd_args+=(--keep-alive)
     fi
     
-    # Create temp files for perf and time output
+    # Create temp file for perf
     local perf_tmp=$(mktemp)
-    local time_tmp=$(mktemp)
     
-    # Run with perf stat and /usr/bin/time
+    # Run with perf stat
     local timestamp=$(date -Iseconds)
     
-    sudo perf stat -e instructions,cycles \
+    perf stat -e instructions,cycles \
         -o "$perf_tmp" \
-        /usr/bin/time -v \
-        "$TOOL_PATH" run "${cmd_args[@]}" 2>"$time_tmp" || true
+        "$TOOL_PATH" run "${cmd_args[@]}" || true
     
     # Parse perf output
     local instructions=$(grep -oP '\d[\d,]*(?=\s+instructions)' "$perf_tmp" 2>/dev/null | tr -d ',' || echo "0")
     local cycles=$(grep -oP '\d[\d,]*(?=\s+cycles)' "$perf_tmp" 2>/dev/null | tr -d ',' || echo "0")
     local wall_time=$(grep -oP '\d+\.\d+(?= seconds time elapsed)' "$perf_tmp" 2>/dev/null || echo "0")
     
-    # Parse /usr/bin/time output for peak RSS
-    local peak_rss=$(grep "Maximum resident set size" "$time_tmp" 2>/dev/null | grep -oP '\d+' || echo "0")
-    
     # Append to CPU CSV
-    echo "${timestamp},${wall_time},${instructions},${cycles},${peak_rss}" >> "$cpu_csv_file"
+    echo "${timestamp},${wall_time},${instructions},${cycles}" >> "$cpu_csv_file"
     
     # Cleanup
-    rm -f "$perf_tmp" "$time_tmp"
+    rm -f "$perf_tmp"
     
     echo "  -> CPU metrics saved to ${base_name}.cpu.csv"
 }

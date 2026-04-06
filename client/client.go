@@ -293,7 +293,7 @@ func createClient(scheme, host, port, path string, opts Options) (DNSClient, err
 			// Janky solution but whatever
 			// Here we rejoin them as the client wants them together
 			// The host is not really a host but whatever
-			ServerStamp:  fmt.Sprintf("%v://%v",scheme,host),
+			ServerStamp: fmt.Sprintf("%v://%v", scheme, host),
 			DNSSEC:      opts.DNSSEC,
 		}
 		logger.Debug("Creating DNSCrypt client with stamp")

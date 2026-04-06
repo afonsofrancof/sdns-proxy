@@ -47,7 +47,7 @@ func New(config Config) (*Client, error) {
 		logger.Error("DoQ failed to resolve address %s:%s: %v", config.Host, config.Port, err)
 		return nil, err
 	}
-	
+
 	udpConn, err := net.ListenUDP("udp", nil)
 	if err != nil {
 		logger.Error("DoQ failed to create UDP connection: %v", err)

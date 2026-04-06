@@ -43,7 +43,7 @@ func New(config Config) (*Client, error) {
 	}
 
 	logger.Debug("Creating DoH client: %s:%s%s (KeepAlive: %v)", config.Host, config.Port, config.Path, config.KeepAlive)
-	
+
 	if config.Host == "" || config.Port == "" || config.Path == "" {
 		logger.Error("DoH client creation failed: missing required fields")
 		return nil, errors.New("doh: host, port, and path must not be empty")
@@ -136,7 +136,7 @@ func (c *Client) Query(msg *dns.Msg) (*dns.Msg, error) {
 	if c.config.DNSSEC {
 		msg.SetEdns0(4096, true)
 	}
-	
+
 	packedMsg, err := msg.Pack()
 	if err != nil {
 		logger.Error("DoH failed to pack DNS message: %v", err)
@@ -152,7 +152,7 @@ func (c *Client) Query(msg *dns.Msg) (*dns.Msg, error) {
 	httpReq.Header.Set("User-Agent", "sdns-proxy")
 	httpReq.Header.Set("Content-Type", dnsMessageContentType)
 	httpReq.Header.Set("Accept", dnsMessageContentType)
-	
+
 	// Set Connection header based on KeepAlive setting
 	if c.config.KeepAlive {
 		httpReq.Header.Set("Connection", "keep-alive")
