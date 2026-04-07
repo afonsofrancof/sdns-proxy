@@ -92,10 +92,10 @@ declare -A QUIC_SERVERS=(
 )
 
 declare -A CONNLESS_SERVERS=(
-    ["google-udp"]="udp://8.8.8.8:53"
-    ["cloudflare-udp"]="udp://1.1.1.1:53"
-    ["quad9-udp"]="udp://9.9.9.9:53"
-    ["adguard-udp"]="udp://dns.adguard-dns.com:53"
+    ["google-doudp"]="udp://8.8.8.8:53"
+    ["cloudflare-doudp"]="udp://1.1.1.1:53"
+    ["quad9-doudp"]="udp://9.9.9.9:53"
+    ["adguard-doudp"]="udp://dns.adguard-dns.com:53"
     ["adguard-dnscrypt"]="sdns://AQMAAAAAAAAAETk0LjE0MC4xNC4xNDo1NDQzINErR_JS3PLCu_iZEIbq95zkSV2LFsigxDIuUso_OQhzIjIuZG5zY3J5cHQuZGVmYXVsdC5uczEuYWRndWFyZC5jb20"
     ["quad9-dnscrypt"]="sdns://AQMAAAAAAAAAFDE0OS4xMTIuMTEyLjExMjo4NDQzIGfIR7jIdYzRICRVQ751Z0bfNN8dhMALjEcDaN-CHYY-GTIuZG5zY3J5cHQtY2VydC5xdWFkOS5uZXQ"
 )
