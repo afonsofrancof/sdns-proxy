@@ -5,7 +5,6 @@ Extracts metadata from filenames and directory structure.
 """
 
 import csv
-import os
 from pathlib import Path
 from dateutil import parser as date_parser
 import argparse
@@ -63,7 +62,8 @@ def find_csv_files(input_dir: Path) -> list:
     """Find all non-backup CSV files."""
     files = []
     for csv_path in input_dir.rglob('*.csv'):
-        if '.bak' in csv_path.name:
+        name = csv_path.name.lower()
+        if '.bak' in name or name.endswith('.cpu.csv') or name.endswith('.mem.csv'):
             continue
         files.append(csv_path)
     return sorted(files)
