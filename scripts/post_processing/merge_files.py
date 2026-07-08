@@ -73,6 +73,10 @@ def merge_all_csvs(input_dir: Path, output_path: Path):
     """Merge all CSVs into a single file."""
     
     csv_files = find_csv_files(input_dir)
+
+    print(f"Files to process ({len(csv_files)}):")
+    for f in csv_files:
+        print(f"  {f}")
     
     if not csv_files:
         print("No CSV files found")
@@ -96,11 +100,6 @@ def merge_all_csvs(input_dir: Path, output_path: Path):
         'duration_ms',
         'request_size_bytes',
         'response_size_bytes',
-        'bytes_sent',
-        'bytes_received',
-        'packets_sent',
-        'packets_received',
-        'total_bytes',
         'response_code',
         'error',
     ]
@@ -146,11 +145,6 @@ def merge_all_csvs(input_dir: Path, output_path: Path):
                         'duration_ms': ns_to_ms(row.get('duration_ns', '')),
                         'request_size_bytes': row.get('request_size_bytes', ''),
                         'response_size_bytes': row.get('response_size_bytes', ''),
-                        'bytes_sent': row.get('bytes_sent', ''),
-                        'bytes_received': row.get('bytes_received', ''),
-                        'packets_sent': row.get('packets_sent', ''),
-                        'packets_received': row.get('packets_received', ''),
-                        'total_bytes': row.get('total_bytes', ''),
                         'response_code': row.get('response_code', ''),
                         'error': row.get('error', ''),
                     }
@@ -173,7 +167,7 @@ def main():
     parser.add_argument(
         'input_dir',
         nargs='?',
-        default='.',
+        default='results',
         help='Input directory containing provider folders (default: .)'
     )
     parser.add_argument(

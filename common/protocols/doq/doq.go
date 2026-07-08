@@ -26,7 +26,7 @@ type Client struct {
 	targetAddr    *net.UDPAddr
 	tlsConfig     *tls.Config
 	udpConn       *net.UDPConn
-	quicConn      quic.Connection
+	quicConn      *quic.Conn
 	quicTransport *quic.Transport
 	quicConfig    *quic.Config
 	config        Config
@@ -119,7 +119,7 @@ func (c *Client) Query(msg *dns.Msg) (*dns.Msg, error) {
 		return nil, fmt.Errorf("doq: failed to pack message: %w", err)
 	}
 
-	var quicStream quic.Stream
+	var quicStream *quic.Stream
 	quicStream, err = c.quicConn.OpenStream()
 	if err != nil {
 		logger.Debug("DoQ stream failed, reconnecting: %v", err)

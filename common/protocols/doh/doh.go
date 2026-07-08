@@ -27,7 +27,6 @@ type Config struct {
 	Path      string
 	DNSSEC    bool
 	HTTP3     bool
-	HTTP2     bool
 	KeepAlive bool
 }
 
@@ -62,6 +61,7 @@ func New(config Config) (*Client, error) {
 
 	tlsConfig := &tls.Config{
 		ServerName:         config.Host,
+		MinVersion: tls.VersionTLS13,
 		ClientSessionCache: tls.NewLRUClientSessionCache(100),
 	}
 
@@ -88,14 +88,7 @@ func New(config Config) (*Client, error) {
 	}
 
 	var transportType string
-	if config.HTTP2 {
-		http2Transport := &http2.Transport{
-			TLSClientConfig: tlsConfig,
-			AllowHTTP:       true,
-		}
-		httpClient.Transport = http2Transport
-		transportType = "HTTP/2"
-	} else if config.HTTP3 {
+	if config.HTTP3 {
 		quicTlsConfig := http3.ConfigureTLSConfig(tlsConfig)
 		http3Transport := &http3.Transport{
 			TLSClientConfig: quicTlsConfig,
@@ -104,7 +97,12 @@ func New(config Config) (*Client, error) {
 		httpClient.Transport = http3Transport
 		transportType = "HTTP/3"
 	} else {
-		transportType = "HTTP/1.1"
+		http2Transport := &http2.Transport{
+			TLSClientConfig: tlsConfig,
+			AllowHTTP:       true,
+		}
+		httpClient.Transport = http2Transport
+		transportType = "HTTP/2"
 	}
 
 	logger.Debug("DoH client created: %s (%s, DNSSEC: %v, KeepAlive: %v)", rawURL, transportType, config.DNSSEC, config.KeepAlive)
@@ -114,6 +112,43 @@ func New(config Config) (*Client, error) {
 		upstreamURL: parsedURL,
 		config:      config,
 	}, nil
+}
+
+// newSingleUseClient builds a throwaway *http.Client whose transport is torn
+// down by the returned closeFn. Used for non-persistent (non-keep-alive) mode
+// so that each query establishes and tears down its own connection, and thus
+// pays its own TCP+TLS (or QUIC) handshake. Without this, the pooled
+// HTTP/2 transport silently reuses a single connection across all queries
+// (HTTP/2 multiplexes and ignores the Connection: close header), which would
+// make the non-persistent measurement indistinguishable from persistent.
+func (c *Client) newSingleUseClient() (*http.Client, func()) {
+	tlsConfig := &tls.Config{
+		ServerName:         c.config.Host,
+		MinVersion:         tls.VersionTLS13,
+		ClientSessionCache: nil, // no resumption: force a full handshake each query
+	}
+
+	if c.config.HTTP3 {
+		quicConf := &quic.Config{
+			MaxIdleTimeout:          30 * time.Second,
+			DisablePathMTUDiscovery: true,
+		}
+		quicTLS := http3.ConfigureTLSConfig(tlsConfig)
+		tr := &http3.Transport{
+			TLSClientConfig: quicTLS,
+			QUICConfig:      quicConf,
+		}
+		client := &http.Client{Transport: tr, Timeout: 30 * time.Second}
+		return client, func() { tr.Close() }
+	}
+
+	tr := &http2.Transport{
+		TLSClientConfig:    tlsConfig,
+		AllowHTTP:          true,
+		DisableCompression: true,
+	}
+	client := &http.Client{Transport: tr, Timeout: 30 * time.Second}
+	return client, func() { tr.CloseIdleConnections() }
 }
 
 func (c *Client) Close() {
@@ -143,6 +178,18 @@ func (c *Client) Query(msg *dns.Msg) (*dns.Msg, error) {
 		return nil, fmt.Errorf("doh: failed to pack DNS message: %w", err)
 	}
 
+	// Select the HTTP client. In persistent mode, reuse the pooled client built
+	// in New(). In non-persistent mode, build a fresh client (and transport)
+	// per query and tear it down afterwards, so every query pays its own
+	// handshake — otherwise HTTP/2 would reuse one connection and the
+	// non-persistent measurement would be wrong.
+	httpClient := c.httpClient
+	if !c.config.KeepAlive {
+		freshClient, closeFn := c.newSingleUseClient()
+		defer closeFn()
+		httpClient = freshClient
+	}
+
 	httpReq, err := http.NewRequest(http.MethodPost, c.upstreamURL.String(), bytes.NewReader(packedMsg))
 	if err != nil {
 		logger.Error("DoH failed to create HTTP request: %v", err)
@@ -153,14 +200,7 @@ func (c *Client) Query(msg *dns.Msg) (*dns.Msg, error) {
 	httpReq.Header.Set("Content-Type", dnsMessageContentType)
 	httpReq.Header.Set("Accept", dnsMessageContentType)
 
-	// Set Connection header based on KeepAlive setting
-	if c.config.KeepAlive {
-		httpReq.Header.Set("Connection", "keep-alive")
-	} else {
-		httpReq.Header.Set("Connection", "close")
-	}
-
-	httpResp, err := c.httpClient.Do(httpReq)
+	httpResp, err := httpClient.Do(httpReq)
 	if err != nil {
 		logger.Error("DoH request failed to %s: %v", c.upstreamURL.Host, err)
 		return nil, fmt.Errorf("doh: failed executing HTTP request to %s: %w", c.upstreamURL.Host, err)

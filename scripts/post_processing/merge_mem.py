@@ -50,7 +50,7 @@ def merge_mem_files(input_dir: Path, output_path: Path):
     print(f"Found {len(mem_files)} Memory metric files")
     
     output_columns = [
-        'id',' provider', 'protocol', 'dnssec_mode', 'keep_alive',
+        'id','provider', 'protocol', 'dnssec_mode', 'keep_alive',
         'timestamp', 'total_alloc_bytes', 'mallocs', 'gc_cycles',
         'alloc_delta', 'mallocs_delta', 'gc_delta'
     ]

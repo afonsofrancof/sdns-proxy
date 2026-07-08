@@ -49,6 +49,7 @@ func New(config Config) (*Client, error) {
 
 	tlsConfig := &tls.Config{
 		ServerName: config.Host,
+		MinVersion: tls.VersionTLS13,
 	}
 
 	client := &Client{
