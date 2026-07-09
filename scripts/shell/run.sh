@@ -94,28 +94,28 @@ add() {  # add <name> <url> <dnssec> <auth> <keepalive>
 # All transports.
 add google-dotcp      "dotcp://8.8.8.8:53"                      false false false
 add cloudflare-dotcp  "dotcp://1.1.1.1:53"                      false false false
-add quad9-dotcp       "dotcp://9.9.9.9:53"                      false false false
-add adguard-dotcp     "dotcp://dns.adguard-dns.com:53"          false false false
+add quad9-dotcp       "dotcp://9.9.9.10:53"                      false false false
+add adguard-dotcp     "dotcp://94.140.14.140:53"                false false false
 
 add google-dot        "tls://8.8.8.8:853"                       false false false
 add cloudflare-dot    "tls://1.1.1.1:853"                       false false false
-add quad9-dot         "tls://9.9.9.9:853"                       false false false
-add adguard-dot       "tls://dns.adguard-dns.com:853"           false false false
+add quad9-dot         "tls://9.9.9.10:853"                       false false false
+add adguard-dot       "tls://94.140.14.140:853"                 false false false
 
 add google-doh        "https://dns.google/dns-query"            false false false
 add cloudflare-doh    "https://cloudflare-dns.com/dns-query"    false false false
 add quad9-doh         "https://dns10.quad9.net/dns-query"       false false false
-add adguard-doh       "https://dns.adguard-dns.com/dns-query"   false false false
+add adguard-doh       "https://unfiltered.adguard-dns.com/dns-query"   false false false
 
 add google-doh3       "doh3://dns.google/dns-query"             false false false
 add cloudflare-doh3   "doh3://cloudflare-dns.com/dns-query"     false false false
-add adguard-doh3      "doh3://dns.adguard-dns.com/dns-query"    false false false
-add adguard-doq       "doq://dns.adguard-dns.com:853"           false false false
+add adguard-doh3      "doh3://unfiltered.adguard-dns.com/dns-query"    false false false
+add adguard-doq       "doq://unfiltered.adguard-dns.com:853"    false false false
 
 add google-doudp      "udp://8.8.8.8:53"                        false false false
 add cloudflare-doudp  "udp://1.1.1.1:53"                        false false false
-add quad9-doudp       "udp://9.9.9.9:53"                        false false false
-add adguard-doudp     "udp://dns.adguard-dns.com:53"            false false false
+add quad9-doudp       "udp://9.9.9.10:53"                        false false false
+add adguard-doudp     "udp://94.140.14.140:53"                  false false false
 add adguard-dnscrypt  "sdns://AQMAAAAAAAAAETk0LjE0MC4xNC4xNDo1NDQzINErR_JS3PLCu_iZEIbq95zkSV2LFsigxDIuUso_OQhzIjIuZG5zY3J5cHQuZGVmYXVsdC5uczEuYWRndWFyZC5jb20" false false false
 add quad9-dnscrypt    "sdns://AQMAAAAAAAAAFDE0OS4xMTIuMTEyLjExMjo4NDQzIGfIR7jIdYzRICRVQ751Z0bfNN8dhMALjEcDaN-CHYY-GTIuZG5zY3J5cHQtY2VydC5xdWFkOS5uZXQ" false false false
 
@@ -124,50 +124,50 @@ add quad9-dnscrypt    "sdns://AQMAAAAAAAAAFDE0OS4xMTIuMTEyLjExMjo4NDQzIGfIR7jIdY
 # QUIC makes no sense cause of 0-RTT.
 add google-dotcp      "dotcp://8.8.8.8:53"                      false false true
 add cloudflare-dotcp  "dotcp://1.1.1.1:53"                      false false true
-add quad9-dotcp       "dotcp://9.9.9.9:53"                      false false true
-add adguard-dotcp     "dotcp://dns.adguard-dns.com:53"          false false true
+add quad9-dotcp       "dotcp://9.9.9.10:53"                      false false true
+add adguard-dotcp     "dotcp://94.140.14.140:53"                false false true
 
 add google-dot        "tls://8.8.8.8:853"                       false false true
 add cloudflare-dot    "tls://1.1.1.1:853"                       false false true
-add quad9-dot         "tls://9.9.9.9:853"                       false false true
-add adguard-dot       "tls://dns.adguard-dns.com:853"           false false true
+add quad9-dot         "tls://9.9.9.10:853"                       false false true
+add adguard-dot       "tls://94.140.14.140:853"                 false false true
 
 add google-doh        "https://dns.google/dns-query"            false false true
 add cloudflare-doh    "https://cloudflare-dns.com/dns-query"    false false true
 add quad9-doh         "https://dns10.quad9.net/dns-query"       false false true
-add adguard-doh       "https://dns.adguard-dns.com/dns-query"   false false true
+add adguard-doh       "https://unfiltered.adguard-dns.com/dns-query"   false false true
 
 # DNSSEC trust - non-persistent.
 add google-dotcp      "dotcp://8.8.8.8:53"                      true false false
 add cloudflare-dotcp  "dotcp://1.1.1.1:53"                      true false false
-add quad9-dotcp       "dotcp://9.9.9.9:53"                      true false false
-add adguard-dotcp     "dotcp://dns.adguard-dns.com:53"          true false false
+add quad9-dotcp       "dotcp://9.9.9.10:53"                      true false false
+add adguard-dotcp     "dotcp://94.140.14.140:53"          true false false
 
 add google-dot        "tls://8.8.8.8:853"                       true false false
 add cloudflare-dot    "tls://1.1.1.1:853"                       true false false
-add quad9-dot         "tls://9.9.9.9:853"                       true false false
-add adguard-dot       "tls://dns.adguard-dns.com:853"           true false false
+add quad9-dot         "tls://9.9.9.10:853"                       true false false
+add adguard-dot       "tls://94.140.14.140:853"           true false false
 
 add google-doh        "https://dns.google/dns-query"            true false false
 add cloudflare-doh    "https://cloudflare-dns.com/dns-query"    true false false
 add quad9-doh         "https://dns10.quad9.net/dns-query"       true false false
-add adguard-doh       "https://dns.adguard-dns.com/dns-query"   true false false
+add adguard-doh       "https://unfiltered.adguard-dns.com/dns-query"   true false false
 
 add google-doh3       "doh3://dns.google/dns-query"             true false false
 add cloudflare-doh3   "doh3://cloudflare-dns.com/dns-query"     true false false
-add adguard-doh3      "doh3://dns.adguard-dns.com/dns-query"    true false false
-add adguard-doq       "doq://dns.adguard-dns.com:853"           true false false
+add adguard-doh3      "doh3://unfiltered.adguard-dns.com/dns-query"    true false false
+add adguard-doq       "doq://unfiltered.adguard-dns.com:853"           true false false
 
 add google-doudp      "udp://8.8.8.8:53"                        true false false
 add cloudflare-doudp  "udp://1.1.1.1:53"                        true false false
-add quad9-doudp       "udp://9.9.9.9:53"                        true false false
-add adguard-doudp     "udp://dns.adguard-dns.com:53"            true false false
+add quad9-doudp       "udp://9.9.9.10:53"                        true false false
+add adguard-doudp     "udp://94.140.14.140:53"            true false false
 add adguard-dnscrypt  "sdns://AQMAAAAAAAAAETk0LjE0MC4xNC4xNDo1NDQzINErR_JS3PLCu_iZEIbq95zkSV2LFsigxDIuUso_OQhzIjIuZG5zY3J5cHQuZGVmYXVsdC5uczEuYWRndWFyZC5jb20" true false false
 add quad9-dnscrypt    "sdns://AQMAAAAAAAAAFDE0OS4xMTIuMTEyLjExMjo4NDQzIGfIR7jIdYzRICRVQ751Z0bfNN8dhMALjEcDaN-CHYY-GTIuZG5zY3J5cHQtY2VydC5xdWFkOS5uZXQ" true false false
 
 # DNSSEC auth - DoUDP only.
 # auth walks the chain of trust over plain DoUDP regardless of the protocol.
-add adguard-doudp     "udp://dns.adguard-dns.com:53"            true true false
+add adguard-doudp     "udp://unfiltered.adguard-dns.com:53"            true true false
 
 # Function to get flags suffix for filename
 get_flags_suffix() {
