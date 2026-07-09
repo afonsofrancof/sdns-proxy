@@ -16,7 +16,6 @@ import dpkt
 
 
 DEFAULT_LOCAL_IP = "192.168.100.2"  # netns veth1 address
-DEFAULT_PROVIDERS = ["adguard", "cloudflare", "google", "quad9"]
 
 
 class PacketSummary(NamedTuple):
@@ -50,17 +49,12 @@ def parse_config_from_filename(filename: str) -> dict:
     }
 
 
-def find_pcap_files(input_dir: Path, providers: List[str]) -> List[Path]:
+def find_pcap_files(input_dir: Path) -> List[Path]:
     files: List[Path] = []
-    for provider in providers:
-        provider_path = input_dir / provider
-        if not provider_path.exists():
-            print(f"  ⚠ Missing provider directory: {provider}")
-            continue
-        for p in sorted(provider_path.glob("*.pcap")):
-            if ".bak" not in p.name:
-                files.append(p)
-    return files
+    for p in input_dir.rglob("*.pcap"):
+        if ".bak" not in p.name:
+            files.append(p)
+    return sorted(files)
 
 
 def summarize_pcap(pcap_path: Path, local_ip_bytes: bytes) -> PacketSummary:
@@ -100,10 +94,10 @@ def summarize_pcap(pcap_path: Path, local_ip_bytes: bytes) -> PacketSummary:
     )
 
 
-def merge_pcap_files(input_dir: Path, output_path: Path, local_ip: str, providers: List[str]):
+def merge_pcap_files(input_dir: Path, output_path: Path, local_ip: str):
     local_ip_bytes = socket.inet_aton(local_ip)
 
-    pcap_files = find_pcap_files(input_dir, providers)
+    pcap_files = find_pcap_files(input_dir)
     if not pcap_files:
         print("No .pcap files found.")
         return
@@ -167,11 +161,9 @@ def main():
     parser.add_argument("-o", "--output", default="dns_results_pcap.csv", help="Output CSV path")
     parser.add_argument("--local-ip", default=DEFAULT_LOCAL_IP,
                         help=f"Local netns veth IP for direction detection (default: {DEFAULT_LOCAL_IP})")
-    parser.add_argument("--providers", nargs="+", default=DEFAULT_PROVIDERS,
-                        help="Provider subdirectory names to scan")
     args = parser.parse_args()
 
-    merge_pcap_files(Path(args.input_dir), Path(args.output), args.local_ip, args.providers)
+    merge_pcap_files(Path(args.input_dir), Path(args.output), args.local_ip)
     return 0
 
 
