@@ -101,7 +101,12 @@ func (c *Client) Query(msg *dns.Msg) (*dns.Msg, error) {
 		return nil, fmt.Errorf("doudp: failed to set read deadline: %w", err)
 	}
 
-	buffer := make([]byte, dns.MaxMsgSize)
+	var buffer []byte
+	if c.config.DNSSEC {
+		buffer = make([]byte, 4096)
+	}else {
+		buffer = make([]byte, 512)
+	}
 	n, err := conn.Read(buffer)
 	if err != nil {
 		logger.Error("DoUDP failed to read response from %s: %v", c.hostAndPort, err)
