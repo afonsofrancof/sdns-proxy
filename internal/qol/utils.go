@@ -61,6 +61,9 @@ func cleanServerName(server string) string {
 		"dns.adguard.com":       "adguard",
 		"dns.adguard-dns.com":   "adguard",
 		"AQMAAAAAAAAAETk0LjE0MC4xNC4xNDo1NDQzINErR_JS3PLCu_iZEIbq95zkSV2LFsigxDIuUso_OQhzIjIuZG5zY3J5cHQuZGVmYXVsdC5uczEuYWRndWFyZC5jb20": "adguard",
+		"94.140.14.140":              "adguard",
+		"9.9.9.10":                   "quad9",
+		"unfiltered.adguard-dns.com": "adguard",
 	}
 
 	serverName := ""
