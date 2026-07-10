@@ -61,25 +61,21 @@ func (c *Client) Close() {
 	// The dnscrypt library doesn't require explicit cleanup
 }
 
-func (c *Client) Query(msg *dns.Msg) (*dns.Msg, error) {
+func (c *Client) Query(msg *dns.Msg) (*dns.Msg, *dns.Msg, error) {
 	if len(msg.Question) > 0 {
 		question := msg.Question[0]
 		logger.Debug("DNSCrypt query: %s %s", question.Name, dns.TypeToString[question.Qtype])
 	}
 
-	if c.config.DNSSEC {
-		msg.SetEdns0(4096, true)
-	}
-
 	response, err := c.resolver.Exchange(msg, c.ri)
 	if err != nil {
 		logger.Error("DNSCrypt query failed: %v", err)
-		return nil, fmt.Errorf("dnscrypt: query failed: %w", err)
+		return msg, nil, fmt.Errorf("dnscrypt: query failed: %w", err)
 	}
 
 	if len(response.Answer) > 0 {
 		logger.Debug("DNSCrypt response: %d answers", len(response.Answer))
 	}
 
-	return response, nil
+	return msg, response, nil
 }

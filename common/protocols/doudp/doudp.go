@@ -64,7 +64,7 @@ func (c *Client) createConnection() (*net.UDPConn, error) {
 	return conn, nil
 }
 
-func (c *Client) Query(msg *dns.Msg) (*dns.Msg, error) {
+func (c *Client) Query(msg *dns.Msg) (*dns.Msg, *dns.Msg, error) {
 	if len(msg.Question) > 0 {
 		question := msg.Question[0]
 		logger.Debug("DoUDP query: %s %s to %s", question.Name, dns.TypeToString[question.Qtype], c.hostAndPort)
@@ -72,56 +72,52 @@ func (c *Client) Query(msg *dns.Msg) (*dns.Msg, error) {
 
 	conn, err := c.createConnection()
 	if err != nil {
-		return nil, fmt.Errorf("doudp: failed to create connection: %w", err)
+		return msg, nil, fmt.Errorf("doudp: failed to create connection: %w", err)
 	}
 	defer conn.Close()
-
-	if c.config.DNSSEC {
-		msg.SetEdns0(4096, true)
-	}
 
 	packedMsg, err := msg.Pack()
 	if err != nil {
 		logger.Error("DoUDP failed to pack message: %v", err)
-		return nil, fmt.Errorf("doudp: failed to pack DNS message: %w", err)
+		return msg, nil, fmt.Errorf("doudp: failed to pack DNS message: %w", err)
 	}
 
 	if err := conn.SetWriteDeadline(time.Now().Add(c.config.WriteTimeout)); err != nil {
 		logger.Error("DoUDP failed to set write deadline: %v", err)
-		return nil, fmt.Errorf("doudp: failed to set write deadline: %w", err)
+		return msg, nil, fmt.Errorf("doudp: failed to set write deadline: %w", err)
 	}
 
 	if _, err := conn.Write(packedMsg); err != nil {
 		logger.Error("DoUDP failed to send query to %s: %v", c.hostAndPort, err)
-		return nil, fmt.Errorf("doudp: failed to send DNS query: %w", err)
+		return msg, nil, fmt.Errorf("doudp: failed to send DNS query: %w", err)
 	}
 
 	if err := conn.SetReadDeadline(time.Now().Add(c.config.ReadTimeout)); err != nil {
 		logger.Error("DoUDP failed to set read deadline: %v", err)
-		return nil, fmt.Errorf("doudp: failed to set read deadline: %w", err)
+		return msg, nil, fmt.Errorf("doudp: failed to set read deadline: %w", err)
 	}
 
-	var buffer []byte
-	if c.config.DNSSEC {
-		buffer = make([]byte, 4096)
-	}else {
-		buffer = make([]byte, 512)
+	bufSize := 512
+	if opt := msg.IsEdns0(); opt != nil {
+		bufSize = max(int(opt.UDPSize()), 512)
 	}
+	buffer := make([]byte, bufSize)
+
 	n, err := conn.Read(buffer)
 	if err != nil {
 		logger.Error("DoUDP failed to read response from %s: %v", c.hostAndPort, err)
-		return nil, fmt.Errorf("doudp: failed to read DNS response: %w", err)
+		return msg, nil, fmt.Errorf("doudp: failed to read DNS response: %w", err)
 	}
 
 	response := new(dns.Msg)
 	if err := response.Unpack(buffer[:n]); err != nil {
 		logger.Error("DoUDP failed to unpack response from %s: %v", c.hostAndPort, err)
-		return nil, fmt.Errorf("doudp: failed to unpack DNS response: %w", err)
+		return msg, nil, fmt.Errorf("doudp: failed to unpack DNS response: %w", err)
 	}
 
 	if len(response.Answer) > 0 {
 		logger.Debug("DoUDP response from %s: %d answers", c.hostAndPort, len(response.Answer))
 	}
 
-	return response, nil
+	return msg, response, nil
 }

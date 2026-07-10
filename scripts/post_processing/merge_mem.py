@@ -52,7 +52,7 @@ def merge_mem_files(input_dir: Path, output_path: Path):
     output_columns = [
         'id','provider', 'protocol', 'dnssec_mode', 'keep_alive',
         'timestamp', 'total_alloc_bytes', 'mallocs', 'gc_cycles',
-        'alloc_delta', 'mallocs_delta', 'gc_delta'
+        'alloc_delta', 'mallocs_delta', 'gc_delta', 'peak_rss_kb'
     ]
     
     total_rows = 0
@@ -85,6 +85,7 @@ def merge_mem_files(input_dir: Path, output_path: Path):
                         'alloc_delta': row.get('alloc_delta', ''),
                         'mallocs_delta': row.get('mallocs_delta', ''),
                         'gc_delta': row.get('gc_delta', ''),
+                        'peak_rss_kb': row.get('peak_rss_kb', ''),
                     }
                     writer.writerow(out_row)
     

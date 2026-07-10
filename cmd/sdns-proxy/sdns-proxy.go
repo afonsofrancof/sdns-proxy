@@ -7,16 +7,14 @@ import (
 
 	"github.com/afonsofrancof/sdns-proxy/client"
 	"github.com/afonsofrancof/sdns-proxy/common/logger"
-	"github.com/afonsofrancof/sdns-proxy/server"
 
 	"github.com/alecthomas/kong"
 	"github.com/miekg/dns"
 )
 
 var cli struct {
-	Debug  bool      `help:"Enable debug logging globally." short:"D" env:"DEBUG"`
-	Query  QueryCmd  `cmd:"" help:"Perform a DNS query (client mode)."`
-	Listen ListenCmd `cmd:"" help:"Run as a DNS listener/resolver (server mode)."`
+	Debug bool     `help:"Enable debug logging globally." short:"D" env:"DEBUG"`
+	Query QueryCmd `cmd:"" help:"Perform a DNS query (client mode)."`
 }
 
 type QueryCmd struct {
@@ -30,18 +28,6 @@ type QueryCmd struct {
 	KeepAlive           bool          `help:"Use persistent connections." short:"k"`
 	Timeout             time.Duration `help:"Timeout for the query operation." default:"10s"`
 	KeyLogFile          string        `help:"Path to TLS key log file (for DoT/DoH/DoQ)." env:"SSLKEYLOGFILE"`
-}
-
-type ListenCmd struct {
-	Address             string        `help:"Address to listen on (e.g., :53, :8053)." default:":53"`
-	Upstream            string        `help:"Upstream DNS server (e.g., https://1.1.1.1/dns-query, tls://8.8.8.8)." short:"u" required:""`
-	Fallback            string        `help:"Fallback DNS server (e.g., https://1.1.1.1/dns-query, tls://8.8.8.8)." short:"f"`
-	Bootstrap           string        `help:"Bootstrap DNS server (must be an IP address, e.g., 8.8.8.8, 1.1.1.1)." short:"b"`
-	DNSSEC              bool          `help:"Enable DNSSEC for upstream queries." short:"d"`
-	AuthoritativeDNSSEC bool          `help:"Use authoritative DNSSEC validation instead of trusting resolver." short:"a"`
-	KeepAlive           bool          `help:"Use persistent connections to upstream servers." short:"k"`
-	Timeout             time.Duration `help:"Timeout for upstream queries." default:"5s"`
-	Verbose             bool          `help:"Enable verbose logging." short:"v"`
 }
 
 func (q *QueryCmd) Run() error {
@@ -77,7 +63,7 @@ func (q *QueryCmd) Run() error {
 	msg.RecursionDesired = true
 
 	logger.Debug("Sending DNS query: ID=%d, Question=%s %s", msg.Id, q.DomainName, q.QueryType)
-	recvMsg, err := dnsClient.Query(msg)
+	_, recvMsg, err := dnsClient.Query(msg)
 	if err != nil {
 		logger.Error("DNS query failed: %v", err)
 		return err
@@ -87,35 +73,6 @@ func (q *QueryCmd) Run() error {
 		recvMsg.Id, dns.RcodeToString[recvMsg.Rcode], len(recvMsg.Answer))
 	printResponse(recvMsg.Question[0].Name, q.QueryType, recvMsg)
 	return nil
-}
-
-func (l *ListenCmd) Run() error {
-	config := server.Config{
-		Address:             l.Address,
-		Upstream:            l.Upstream,
-		Fallback:            l.Fallback,
-		Bootstrap:           l.Bootstrap,
-		DNSSEC:              l.DNSSEC,
-		AuthoritativeDNSSEC: l.AuthoritativeDNSSEC,
-		KeepAlive:           l.KeepAlive,
-		Timeout:             l.Timeout,
-		Verbose:             l.Verbose,
-	}
-
-	logger.Debug("Server config: %+v", config)
-	srv, err := server.New(config)
-	if err != nil {
-		logger.Error("Failed to create server: %v", err)
-		return fmt.Errorf("failed to create server: %w", err)
-	}
-
-	logger.Info("Starting DNS proxy server on %s", l.Address)
-	logger.Info("Upstream server: %v", l.Upstream)
-	logger.Info("Fallback server: %v", l.Fallback)
-	logger.Info("Bootstrap server: %v", l.Bootstrap)
-	logger.Info("KeepAlive: %v", l.KeepAlive)
-
-	return srv.Start()
 }
 
 func printResponse(domain, qtype string, msg *dns.Msg) {

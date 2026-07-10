@@ -13,6 +13,8 @@ type DNSMetric struct {
 	QueryType           string    `json:"query_type"`
 	Protocol            string    `json:"protocol"`
 	DNSSEC              bool      `json:"dnssec"`
+	DNSSECValidated     bool      `json:"dnssec_validated"`
+	DNSSECQueries       int       `json:"dnssec_queries"`
 	AuthoritativeDNSSEC bool      `json:"auth_dnssec"`
 	KeepAlive           bool      `json:"keep_alive"`
 	DNSServer           string    `json:"dns_server"`
@@ -48,8 +50,8 @@ func NewMetricsWriter(path string) (*MetricsWriter, error) {
 	// Only write header if file is new
 	if !fileExists {
 		header := []string{
-			"domain", "query_type", "protocol", "dnssec", "auth_dnssec", "keep_alive",
-			"dns_server", "timestamp", "duration_ns", "duration_ms",
+			"domain", "query_type", "protocol", "dnssec", "dnssec_validated", "dnssec_queries",
+			"auth_dnssec", "keep_alive", "dns_server", "timestamp", "duration_ns", "duration_ms",
 			"request_size_bytes", "response_size_bytes", "response_code", "error",
 		}
 
@@ -72,6 +74,8 @@ func (mw *MetricsWriter) WriteMetric(metric DNSMetric) error {
 		metric.QueryType,
 		metric.Protocol,
 		strconv.FormatBool(metric.DNSSEC),
+		strconv.FormatBool(metric.DNSSECValidated),
+		strconv.Itoa(metric.DNSSECQueries),
 		strconv.FormatBool(metric.AuthoritativeDNSSEC),
 		strconv.FormatBool(metric.KeepAlive),
 		metric.DNSServer,

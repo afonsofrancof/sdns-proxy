@@ -104,7 +104,7 @@ func (c *Client) ensureConnection() error {
 	return nil
 }
 
-func (c *Client) Query(msg *dns.Msg) (*dns.Msg, error) {
+func (c *Client) Query(msg *dns.Msg) (*dns.Msg, *dns.Msg, error) {
 	if len(msg.Question) > 0 {
 		question := msg.Question[0]
 		logger.Debug("DoTCP query: %s %s to %s", question.Name, dns.TypeToString[question.Qtype], c.hostAndPort)
@@ -112,7 +112,7 @@ func (c *Client) Query(msg *dns.Msg) (*dns.Msg, error) {
 
 	if c.config.KeepAlive {
 		if err := c.ensureConnection(); err != nil {
-			return nil, fmt.Errorf("dotcp: failed to ensure connection: %w", err)
+			return msg, nil, fmt.Errorf("dotcp: failed to ensure connection: %w", err)
 		}
 	} else {
 		c.connMutex.Lock()
@@ -123,18 +123,14 @@ func (c *Client) Query(msg *dns.Msg) (*dns.Msg, error) {
 		c.connMutex.Unlock()
 
 		if err := c.ensureConnection(); err != nil {
-			return nil, fmt.Errorf("dotcp: failed to create connection: %w", err)
+			return msg, nil, fmt.Errorf("dotcp: failed to create connection: %w", err)
 		}
-	}
-
-	if c.config.DNSSEC {
-		msg.SetEdns0(4096, true)
 	}
 
 	packed, err := msg.Pack()
 	if err != nil {
 		logger.Error("DoTCP failed to pack message: %v", err)
-		return nil, fmt.Errorf("dotcp: failed to pack message: %w", err)
+		return msg, nil, fmt.Errorf("dotcp: failed to pack message: %w", err)
 	}
 
 	// DNS over TCP uses 2-byte length prefix
@@ -148,7 +144,7 @@ func (c *Client) Query(msg *dns.Msg) (*dns.Msg, error) {
 
 	if err := conn.SetWriteDeadline(time.Now().Add(c.config.WriteTimeout)); err != nil {
 		logger.Error("DoTCP failed to set write deadline: %v", err)
-		return nil, fmt.Errorf("dotcp: failed to set write deadline: %w", err)
+		return msg, nil, fmt.Errorf("dotcp: failed to set write deadline: %w", err)
 	}
 
 	if _, err := conn.Write(data); err != nil {
@@ -157,7 +153,7 @@ func (c *Client) Query(msg *dns.Msg) (*dns.Msg, error) {
 		if c.config.KeepAlive {
 			logger.Debug("DoTCP write failed with keep-alive, attempting reconnect")
 			if reconnectErr := c.ensureConnection(); reconnectErr != nil {
-				return nil, fmt.Errorf("dotcp: failed to reconnect: %w", reconnectErr)
+				return msg, nil, fmt.Errorf("dotcp: failed to reconnect: %w", reconnectErr)
 			}
 
 			c.connMutex.Lock()
@@ -165,44 +161,44 @@ func (c *Client) Query(msg *dns.Msg) (*dns.Msg, error) {
 			c.connMutex.Unlock()
 
 			if err := conn.SetWriteDeadline(time.Now().Add(c.config.WriteTimeout)); err != nil {
-				return nil, fmt.Errorf("dotcp: failed to set write deadline after reconnect: %w", err)
+				return msg, nil, fmt.Errorf("dotcp: failed to set write deadline after reconnect: %w", err)
 			}
 
 			if _, err := conn.Write(data); err != nil {
-				return nil, fmt.Errorf("dotcp: failed to write message after reconnect: %w", err)
+				return msg, nil, fmt.Errorf("dotcp: failed to write message after reconnect: %w", err)
 			}
 		} else {
-			return nil, fmt.Errorf("dotcp: failed to write message: %w", err)
+			return msg, nil, fmt.Errorf("dotcp: failed to write message: %w", err)
 		}
 	}
 
 	if err := conn.SetReadDeadline(time.Now().Add(c.config.ReadTimeout)); err != nil {
 		logger.Error("DoTCP failed to set read deadline: %v", err)
-		return nil, fmt.Errorf("dotcp: failed to set read deadline: %w", err)
+		return msg, nil, fmt.Errorf("dotcp: failed to set read deadline: %w", err)
 	}
 
 	lengthBuf := make([]byte, 2)
 	if _, err := io.ReadFull(conn, lengthBuf); err != nil {
 		logger.Error("DoTCP failed to read response length from %s: %v", c.hostAndPort, err)
-		return nil, fmt.Errorf("dotcp: failed to read response length: %w", err)
+		return msg, nil, fmt.Errorf("dotcp: failed to read response length: %w", err)
 	}
 
 	msgLen := binary.BigEndian.Uint16(lengthBuf)
 	if msgLen > dns.MaxMsgSize {
 		logger.Error("DoTCP response too large from %s: %d bytes", c.hostAndPort, msgLen)
-		return nil, fmt.Errorf("dotcp: response message too large: %d", msgLen)
+		return msg, nil, fmt.Errorf("dotcp: response message too large: %d", msgLen)
 	}
 
 	buffer := make([]byte, msgLen)
 	if _, err := io.ReadFull(conn, buffer); err != nil {
 		logger.Error("DoTCP failed to read response from %s: %v", c.hostAndPort, err)
-		return nil, fmt.Errorf("dotcp: failed to read response: %w", err)
+		return msg, nil, fmt.Errorf("dotcp: failed to read response: %w", err)
 	}
 
 	response := new(dns.Msg)
 	if err := response.Unpack(buffer); err != nil {
 		logger.Error("DoTCP failed to unpack response from %s: %v", c.hostAndPort, err)
-		return nil, fmt.Errorf("dotcp: failed to unpack response: %w", err)
+		return msg, nil, fmt.Errorf("dotcp: failed to unpack response: %w", err)
 	}
 
 	if len(response.Answer) > 0 {
@@ -218,5 +214,5 @@ func (c *Client) Query(msg *dns.Msg) (*dns.Msg, error) {
 		c.connMutex.Unlock()
 	}
 
-	return response, nil
+	return msg, response, nil
 }

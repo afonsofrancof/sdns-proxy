@@ -95,7 +95,7 @@ func (c *Client) OpenConnection() error {
 	return nil
 }
 
-func (c *Client) Query(msg *dns.Msg) (*dns.Msg, error) {
+func (c *Client) Query(msg *dns.Msg) (*dns.Msg, *dns.Msg, error) {
 	if len(msg.Question) > 0 {
 		question := msg.Question[0]
 		logger.Debug("DoQ query: %s %s to %s", question.Name, dns.TypeToString[question.Qtype], c.targetAddr)
@@ -104,19 +104,17 @@ func (c *Client) Query(msg *dns.Msg) (*dns.Msg, error) {
 	if c.quicConn == nil {
 		err := c.OpenConnection()
 		if err != nil {
-			return nil, err
+			return msg, nil, err
 		}
 	}
 
 	// Prepare DNS message
+	// DoQ requires Id to be 0
 	msg.Id = 0
-	if c.config.DNSSEC {
-		msg.SetEdns0(4096, true)
-	}
 	packed, err := msg.Pack()
 	if err != nil {
 		logger.Error("DoQ failed to pack message: %v", err)
-		return nil, fmt.Errorf("doq: failed to pack message: %w", err)
+		return msg, nil, fmt.Errorf("doq: failed to pack message: %w", err)
 	}
 
 	var quicStream *quic.Stream
@@ -125,12 +123,12 @@ func (c *Client) Query(msg *dns.Msg) (*dns.Msg, error) {
 		logger.Debug("DoQ stream failed, reconnecting: %v", err)
 		err = c.OpenConnection()
 		if err != nil {
-			return nil, err
+			return msg, nil, err
 		}
 		quicStream, err = c.quicConn.OpenStream()
 		if err != nil {
 			logger.Error("DoQ failed to open stream after reconnect: %v", err)
-			return nil, err
+			return msg, nil, err
 		}
 	}
 
@@ -138,18 +136,18 @@ func (c *Client) Query(msg *dns.Msg) (*dns.Msg, error) {
 	err = binary.Write(&lengthPrefixedMessage, binary.BigEndian, uint16(len(packed)))
 	if err != nil {
 		logger.Error("DoQ failed to write message length: %v", err)
-		return nil, fmt.Errorf("failed to write message length: %w", err)
+		return msg, nil, fmt.Errorf("failed to write message length: %w", err)
 	}
 	_, err = lengthPrefixedMessage.Write(packed)
 	if err != nil {
 		logger.Error("DoQ failed to write DNS message: %v", err)
-		return nil, fmt.Errorf("failed to write DNS message: %w", err)
+		return msg, nil, fmt.Errorf("failed to write DNS message: %w", err)
 	}
 
 	_, err = quicStream.Write(lengthPrefixedMessage.Bytes())
 	if err != nil {
 		logger.Error("DoQ failed to write to stream: %v", err)
-		return nil, fmt.Errorf("failed writing to QUIC stream: %w", err)
+		return msg, nil, fmt.Errorf("failed writing to QUIC stream: %w", err)
 	}
 	quicStream.Close()
 
@@ -157,32 +155,32 @@ func (c *Client) Query(msg *dns.Msg) (*dns.Msg, error) {
 	_, err = io.ReadFull(quicStream, lengthBuf)
 	if err != nil {
 		logger.Error("DoQ failed to read response length: %v", err)
-		return nil, fmt.Errorf("failed reading response length: %w", err)
+		return msg, nil, fmt.Errorf("failed reading response length: %w", err)
 	}
 
 	messageLength := binary.BigEndian.Uint16(lengthBuf)
 	if messageLength == 0 {
 		logger.Error("DoQ received zero-length message")
-		return nil, fmt.Errorf("received zero-length message")
+		return msg, nil, fmt.Errorf("received zero-length message")
 	}
 
 	responseBuf := make([]byte, messageLength)
 	_, err = io.ReadFull(quicStream, responseBuf)
 	if err != nil {
 		logger.Error("DoQ failed to read response data: %v", err)
-		return nil, fmt.Errorf("failed reading response data: %w", err)
+		return msg, nil, fmt.Errorf("failed reading response data: %w", err)
 	}
 
 	recvMsg := new(dns.Msg)
 	err = recvMsg.Unpack(responseBuf)
 	if err != nil {
 		logger.Error("DoQ failed to parse response: %v", err)
-		return nil, fmt.Errorf("failed to parse DNS response: %w", err)
+		return msg, nil, fmt.Errorf("failed to parse DNS response: %w", err)
 	}
 
 	if len(recvMsg.Answer) > 0 {
 		logger.Debug("DoQ response from %s: %d answers", c.targetAddr, len(recvMsg.Answer))
 	}
 
-	return recvMsg, nil
+	return msg, recvMsg, nil
 }

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/afonsofrancof/sdns-proxy/client"
+	"github.com/afonsofrancof/sdns-proxy/common/dnssec"
 	"github.com/afonsofrancof/sdns-proxy/internal/qol/capture"
 	"github.com/afonsofrancof/sdns-proxy/internal/qol/results"
 	"github.com/afonsofrancof/sdns-proxy/internal/qol/stats"
@@ -202,19 +203,29 @@ func (r *MeasurementRunner) performQuery(dnsClient client.DNSClient, domain, ups
 	msg.RecursionDesired = true
 	msg.SetQuestion(dns.Fqdn(domain), qType)
 
-	packed, err := msg.Pack()
-	if err != nil {
-		metric.ResponseCode = "ERROR"
-		metric.Error = fmt.Sprintf("pack request: %v", err)
-		return metric
-	}
-	metric.RequestSize = len(packed)
-
 	start := time.Now()
 	metric.Timestamp = start
-	resp, err := dnsClient.Query(msg)
+	sent, resp, err := dnsClient.Query(msg)
 	metric.Duration = time.Since(start).Nanoseconds()
 	metric.DurationMs = float64(metric.Duration) / 1e6
+
+	if sent != nil {
+		if b, perr := sent.Pack(); perr == nil {
+			metric.RequestSize = len(b)
+		}
+	} else if b, perr := msg.Pack(); perr == nil {
+		metric.RequestSize = len(b)
+	}
+
+	if reporter, ok := dnsClient.(interface {
+		LastValidation() dnssec.ValidationStats
+	}); ok {
+		st := reporter.LastValidation()
+		metric.DNSSECValidated = st.Validated
+		metric.DNSSECQueries = st.Queries
+		metric.RequestSize += st.BytesSent
+		metric.ResponseSize += st.BytesReceived
+	}
 
 	if err != nil {
 		metric.ResponseCode = "ERROR"
@@ -222,14 +233,14 @@ func (r *MeasurementRunner) performQuery(dnsClient client.DNSClient, domain, ups
 		return metric
 	}
 
-	respBytes, err := resp.Pack()
-	if err != nil {
+	if b, perr := resp.Pack(); perr == nil {
+		metric.ResponseSize += len(b)
+	} else {
 		metric.ResponseCode = "ERROR"
-		metric.Error = fmt.Sprintf("pack response: %v", err)
+		metric.Error = fmt.Sprintf("pack response: %v", perr)
 		return metric
 	}
 
-	metric.ResponseSize = len(respBytes)
 	metric.ResponseCode = dns.RcodeToString[resp.Rcode]
 	return metric
 }

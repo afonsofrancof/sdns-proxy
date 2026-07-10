@@ -3,6 +3,7 @@ package stats
 import (
 	"encoding/csv"
 	"fmt"
+	"golang.org/x/sys/unix"
 	"os"
 	"runtime"
 	"time"
@@ -15,6 +16,7 @@ type RuntimeStats struct {
 	AllocDelta   uint64
 	MallocsDelta uint64
 	GCDelta      uint32
+	PeakRSSKB    int64
 }
 
 type RuntimeCollector struct {
@@ -43,6 +45,7 @@ func (rc *RuntimeCollector) Collect() RuntimeStats {
 		AllocDelta:   current.TotalAlloc - rc.startStats.TotalAlloc,
 		MallocsDelta: current.Mallocs - rc.startStats.Mallocs,
 		GCDelta:      current.NumGC - rc.startStats.NumGC,
+		PeakRSSKB:    peakRSSKB(),
 	}
 }
 
@@ -69,7 +72,7 @@ func (rc *RuntimeCollector) WriteStats() error {
 	if !fileExists {
 		header := []string{
 			"timestamp", "total_alloc_bytes", "mallocs", "gc_cycles",
-			"alloc_delta", "mallocs_delta", "gc_delta",
+			"alloc_delta", "mallocs_delta", "gc_delta", "peak_rss_kb",
 		}
 		if err := writer.Write(header); err != nil {
 			return fmt.Errorf("failed to write mem.csv header: %w", err)
@@ -85,6 +88,7 @@ func (rc *RuntimeCollector) WriteStats() error {
 		fmt.Sprintf("%d", stats.AllocDelta),
 		fmt.Sprintf("%d", stats.MallocsDelta),
 		fmt.Sprintf("%d", stats.GCDelta),
+		fmt.Sprintf("%d", stats.PeakRSSKB),
 	}
 	if err := writer.Write(row); err != nil {
 		return fmt.Errorf("failed to write mem.csv row: %w", err)
@@ -92,4 +96,12 @@ func (rc *RuntimeCollector) WriteStats() error {
 
 	writer.Flush()
 	return writer.Error()
+}
+
+func peakRSSKB() int64 {
+	var ru unix.Rusage
+	if err := unix.Getrusage(unix.RUSAGE_SELF, &ru); err != nil {
+		return 0
+	}
+	return int64(ru.Maxrss)
 }

@@ -61,7 +61,7 @@ func New(config Config) (*Client, error) {
 
 	tlsConfig := &tls.Config{
 		ServerName:         config.Host,
-		MinVersion: tls.VersionTLS13,
+		MinVersion:         tls.VersionTLS13,
 		ClientSessionCache: tls.NewLRUClientSessionCache(100),
 	}
 
@@ -114,13 +114,6 @@ func New(config Config) (*Client, error) {
 	}, nil
 }
 
-// newSingleUseClient builds a throwaway *http.Client whose transport is torn
-// down by the returned closeFn. Used for non-persistent (non-keep-alive) mode
-// so that each query establishes and tears down its own connection, and thus
-// pays its own TCP+TLS (or QUIC) handshake. Without this, the pooled
-// HTTP/2 transport silently reuses a single connection across all queries
-// (HTTP/2 multiplexes and ignores the Connection: close header), which would
-// make the non-persistent measurement indistinguishable from persistent.
 func (c *Client) newSingleUseClient() (*http.Client, func()) {
 	tlsConfig := &tls.Config{
 		ServerName:         c.config.Host,
@@ -162,27 +155,18 @@ func (c *Client) Close() {
 	}
 }
 
-func (c *Client) Query(msg *dns.Msg) (*dns.Msg, error) {
+func (c *Client) Query(msg *dns.Msg) (*dns.Msg, *dns.Msg, error) {
 	if len(msg.Question) > 0 {
 		question := msg.Question[0]
 		logger.Debug("DoH query: %s %s to %s", question.Name, dns.TypeToString[question.Qtype], c.upstreamURL.Host)
 	}
 
-	if c.config.DNSSEC {
-		msg.SetEdns0(4096, true)
-	}
-
 	packedMsg, err := msg.Pack()
 	if err != nil {
 		logger.Error("DoH failed to pack DNS message: %v", err)
-		return nil, fmt.Errorf("doh: failed to pack DNS message: %w", err)
+		return msg, nil, fmt.Errorf("doh: failed to pack DNS message: %w", err)
 	}
 
-	// Select the HTTP client. In persistent mode, reuse the pooled client built
-	// in New(). In non-persistent mode, build a fresh client (and transport)
-	// per query and tear it down afterwards, so every query pays its own
-	// handshake — otherwise HTTP/2 would reuse one connection and the
-	// non-persistent measurement would be wrong.
 	httpClient := c.httpClient
 	if !c.config.KeepAlive {
 		freshClient, closeFn := c.newSingleUseClient()
@@ -193,7 +177,7 @@ func (c *Client) Query(msg *dns.Msg) (*dns.Msg, error) {
 	httpReq, err := http.NewRequest(http.MethodPost, c.upstreamURL.String(), bytes.NewReader(packedMsg))
 	if err != nil {
 		logger.Error("DoH failed to create HTTP request: %v", err)
-		return nil, fmt.Errorf("doh: failed to create HTTP request object: %w", err)
+		return msg, nil, fmt.Errorf("doh: failed to create HTTP request object: %w", err)
 	}
 
 	httpReq.Header.Set("User-Agent", "sdns-proxy")
@@ -203,36 +187,36 @@ func (c *Client) Query(msg *dns.Msg) (*dns.Msg, error) {
 	httpResp, err := httpClient.Do(httpReq)
 	if err != nil {
 		logger.Error("DoH request failed to %s: %v", c.upstreamURL.Host, err)
-		return nil, fmt.Errorf("doh: failed executing HTTP request to %s: %w", c.upstreamURL.Host, err)
+		return msg, nil, fmt.Errorf("doh: failed executing HTTP request to %s: %w", c.upstreamURL.Host, err)
 	}
 	defer httpResp.Body.Close()
 
 	if httpResp.StatusCode != http.StatusOK {
 		logger.Error("DoH received non-200 status from %s: %s", c.upstreamURL.Host, httpResp.Status)
-		return nil, fmt.Errorf("doh: received non-200 HTTP status from %s: %s", c.upstreamURL.Host, httpResp.Status)
+		return msg, nil, fmt.Errorf("doh: received non-200 HTTP status from %s: %s", c.upstreamURL.Host, httpResp.Status)
 	}
 
 	if ct := httpResp.Header.Get("Content-Type"); ct != dnsMessageContentType {
 		logger.Error("DoH unexpected Content-Type from %s: %s", c.upstreamURL.Host, ct)
-		return nil, fmt.Errorf("doh: unexpected Content-Type from %s: got %q, want %q", c.upstreamURL.Host, ct, dnsMessageContentType)
+		return msg, nil, fmt.Errorf("doh: unexpected Content-Type from %s: got %q, want %q", c.upstreamURL.Host, ct, dnsMessageContentType)
 	}
 
 	responseBody, err := io.ReadAll(httpResp.Body)
 	if err != nil {
 		logger.Error("DoH failed reading response from %s: %v", c.upstreamURL.Host, err)
-		return nil, fmt.Errorf("doh: failed reading response body from %s: %w", c.upstreamURL.Host, err)
+		return msg, nil, fmt.Errorf("doh: failed reading response body from %s: %w", c.upstreamURL.Host, err)
 	}
 
 	recvMsg := new(dns.Msg)
 	err = recvMsg.Unpack(responseBody)
 	if err != nil {
 		logger.Error("DoH failed to unpack response from %s: %v", c.upstreamURL.Host, err)
-		return nil, fmt.Errorf("doh: failed to unpack DNS response from %s: %w", c.upstreamURL.Host, err)
+		return msg, nil, fmt.Errorf("doh: failed to unpack DNS response from %s: %w", c.upstreamURL.Host, err)
 	}
 
 	if len(recvMsg.Answer) > 0 {
 		logger.Debug("DoH response from %s: %d answers", c.upstreamURL.Host, len(recvMsg.Answer))
 	}
 
-	return recvMsg, nil
+	return msg, recvMsg, nil
 }
