@@ -45,8 +45,6 @@ func (v *ValidatingDNSClient) Query(msg *dns.Msg) (*dns.Msg, *dns.Msg, error) {
 			question.Name, dns.TypeToString[question.Qtype], v.options.DNSSEC, v.options.AuthoritativeDNSSEC, v.options.ValidateOnly, v.options.StrictValidation)
 	}
 
-	// DNSSEC policy lives here
-	msg.SetEdns0(4096, true)
 	// Query the base client
 	sent, response, err := v.client.Query(msg)
 	if err != nil {
