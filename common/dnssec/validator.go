@@ -5,6 +5,12 @@ import (
 	"github.com/miekg/dns"
 )
 
+type Exchanger interface {
+	Query(msg *dns.Msg) (sent, resp *dns.Msg, err error)
+	Close()
+}
+type ExchangeFactory func(server string) (Exchanger, error)
+
 type ValidationStats struct {
 	Queries       int
 	BytesSent     int
@@ -28,8 +34,8 @@ func NewValidator(send SendFunc) *Validator {
 	return &Validator{walker: newTrustWalker(send)}
 }
 
-func NewAuthoritativeValidator() *Validator {
-	return &Validator{walker: newIterativeWalker()}
+func NewAuthoritativeValidator(f ExchangeFactory) *Validator {
+	return &Validator{walker: newIterativeWalker(f)}
 }
 
 func (v *Validator) ValidateResponse(msg *dns.Msg, qname string, qtype uint16) error {

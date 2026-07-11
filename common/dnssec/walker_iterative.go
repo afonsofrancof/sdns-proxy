@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net"
 	"strings"
-	"time"
 
 	"github.com/afonsofrancof/sdns-proxy/common/logger"
 	"github.com/miekg/dns"
@@ -12,15 +11,15 @@ import (
 
 // iterativeWalker validates top-down.
 type iterativeWalker struct {
-	client  *dns.Client
-	st      ValidationStats
-	ipCache map[string]string
+	newClient ExchangeFactory
+	st        ValidationStats
+	ipCache   map[string]string
 }
 
-func newIterativeWalker() *iterativeWalker {
+func newIterativeWalker(f ExchangeFactory) *iterativeWalker {
 	return &iterativeWalker{
-		client:  &dns.Client{Timeout: 5 * time.Second},
-		ipCache: make(map[string]string),
+		newClient: f,
+		ipCache:   make(map[string]string),
 	}
 }
 
@@ -38,7 +37,13 @@ func (w *iterativeWalker) exchange(server, name string, qtype uint16) (*dns.Msg,
 	}
 	w.st.Queries++
 
-	resp, _, err := w.client.Exchange(m, server)
+	cl, err := w.newClient(server)
+	if err != nil {
+		return nil, err
+	}
+	defer cl.Close()
+
+	_, resp, err := cl.Query(m)
 	if err == nil && resp != nil {
 		if b, perr := resp.Pack(); perr == nil {
 			w.st.BytesReceived += len(b)

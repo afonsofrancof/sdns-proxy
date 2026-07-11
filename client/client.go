@@ -60,7 +60,7 @@ func New(upstream string, opts Options) (DNSClient, error) {
 	}
 
 	// With DNSSEC, wrap the base client with a validating client.
-	return NewValidating(baseClient, opts), nil
+	return NewDNSSECClient(baseClient, opts), nil
 }
 
 func createClientFromURL(parsedURL *url.URL, opts Options) (DNSClient, error) {

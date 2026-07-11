@@ -115,9 +115,43 @@ func (c *Client) Query(msg *dns.Msg) (*dns.Msg, *dns.Msg, error) {
 		return msg, nil, fmt.Errorf("doudp: failed to unpack DNS response: %w", err)
 	}
 
+	// RFC 1123 / 7766: a truncated UDP answer must be retried over TCP.
+	if response.Truncated {
+		logger.Debug("DoUDP response from %s truncated (TC set), retrying over TCP", c.hostAndPort)
+		tcpResp, terr := c.queryTCP(msg)
+		if terr != nil {
+			return msg, nil, fmt.Errorf("doudp: TCP fallback failed: %w", terr)
+		}
+		response = tcpResp
+	}
+
 	if len(response.Answer) > 0 {
 		logger.Debug("DoUDP response from %s: %d answers", c.hostAndPort, len(response.Answer))
 	}
 
 	return msg, response, nil
+}
+
+func (c *Client) queryTCP(msg *dns.Msg) (*dns.Msg, error) {
+	conn, err := net.DialTimeout("tcp", c.hostAndPort, c.config.WriteTimeout)
+	if err != nil {
+		return nil, fmt.Errorf("dial tcp: %w", err)
+	}
+	defer conn.Close()
+
+	co := &dns.Conn{Conn: conn}
+	if err := co.SetWriteDeadline(time.Now().Add(c.config.WriteTimeout)); err != nil {
+		return nil, fmt.Errorf("set write deadline: %w", err)
+	}
+	if err := co.WriteMsg(msg); err != nil {
+		return nil, fmt.Errorf("write: %w", err)
+	}
+	if err := co.SetReadDeadline(time.Now().Add(c.config.ReadTimeout)); err != nil {
+		return nil, fmt.Errorf("set read deadline: %w", err)
+	}
+	resp, err := co.ReadMsg()
+	if err != nil {
+		return nil, fmt.Errorf("read: %w", err)
+	}
+	return resp, nil
 }

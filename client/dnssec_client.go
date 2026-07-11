@@ -2,46 +2,51 @@ package client
 
 import (
 	"fmt"
+	"net"
 
 	"github.com/afonsofrancof/sdns-proxy/common/dnssec"
 	"github.com/afonsofrancof/sdns-proxy/common/logger"
+	"github.com/afonsofrancof/sdns-proxy/common/protocols/doudp"
 	"github.com/miekg/dns"
 )
 
-type ValidatingDNSClient struct {
+type DNSSECClient struct {
 	client    DNSClient
-	validator *dnssec.Validator
 	options   Options
+	validator *dnssec.Validator
 }
 
-func NewValidating(base DNSClient, opts Options) DNSClient {
+func NewDNSSECClient(base DNSClient, opts Options) DNSClient {
 	logger.Debug("Wrapping base client with DNSSEC validator (AuthoritativeDNSSEC: %v)", opts.AuthoritativeDNSSEC)
-
 	var validator *dnssec.Validator
 	if opts.AuthoritativeDNSSEC {
-		validator = dnssec.NewAuthoritativeValidator()
+		validator = dnssec.NewAuthoritativeValidator(func(server string) (dnssec.Exchanger, error) {
+			host, port, err := net.SplitHostPort(server)
+			if err != nil {
+				host, port = server, "53"
+			}
+			return doudp.New(doudp.Config{
+				HostAndPort: net.JoinHostPort(host, port),
+				DNSSEC:      true,
+			})
+		})
 	} else {
 		validator = dnssec.NewValidator(func(m *dns.Msg) (*dns.Msg, error) { _, r, e := base.Query(m); return r, e })
 	}
-
-	return &ValidatingDNSClient{
-		client:    base,
-		validator: validator,
-		options:   opts,
-	}
+	return &DNSSECClient{client: base, validator: validator, options: opts}
 }
 
-func (v *ValidatingDNSClient) LastValidation() dnssec.ValidationStats {
+func (v *DNSSECClient) LastValidation() dnssec.ValidationStats {
 	if v.validator == nil {
 		return dnssec.ValidationStats{}
 	}
 	return v.validator.TakeStats()
 }
 
-func (v *ValidatingDNSClient) Query(msg *dns.Msg) (*dns.Msg, *dns.Msg, error) {
+func (v *DNSSECClient) Query(msg *dns.Msg) (*dns.Msg, *dns.Msg, error) {
 	if len(msg.Question) > 0 {
 		question := msg.Question[0]
-		logger.Debug("ValidatingDNSClient query: %s %s (DNSSEC: %v, AuthoritativeDNSSEC: %v, ValidateOnly: %v, StrictValidation: %v)",
+		logger.Debug("DNSSECClient query: %s %s (DNSSEC: %v, AuthoritativeDNSSEC: %v, ValidateOnly: %v, StrictValidation: %v)",
 			question.Name, dns.TypeToString[question.Qtype], v.options.DNSSEC, v.options.AuthoritativeDNSSEC, v.options.ValidateOnly, v.options.StrictValidation)
 	}
 
@@ -90,8 +95,8 @@ func (v *ValidatingDNSClient) Query(msg *dns.Msg) (*dns.Msg, *dns.Msg, error) {
 	return sent, response, nil
 }
 
-func (v *ValidatingDNSClient) Close() {
-	logger.Debug("Closing ValidatingDNSClient")
+func (v *DNSSECClient) Close() {
+	logger.Debug("Closing DNSSECClient")
 	if v.client != nil {
 		v.client.Close()
 	}
