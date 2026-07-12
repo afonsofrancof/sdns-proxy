@@ -19,7 +19,7 @@ all: get_files general dnssec
 
 get_files:
 	rsync -a --progress afonso@afonso-pi:~/sdns-proxy/results/ $(GEN_IN)
-	rsync -a --progress afonso@afonso-pi:~/sdns-proxy/results/ $(DNS_IN)
+	rsync -a --progress afonso@afonso-pi:~/sdns-proxy/results-dnssec/ $(DNS_IN)
 
 # ----- general workload: results/ -> out/general/ -----
 general:
