@@ -19,3 +19,8 @@
 /results.bak
 /out
 /results-dnssec
+/figures
+/tables
+/qol
+/dns_analysis.ipynb
+/sdns-proxy
