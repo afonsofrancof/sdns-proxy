@@ -29,7 +29,7 @@ func (w *iterativeWalker) resetStats()            { w.st = ValidationStats{} }
 func (w *iterativeWalker) exchange(server, name string, qtype uint16) (*dns.Msg, error) {
 	m := new(dns.Msg)
 	m.SetQuestion(dns.Fqdn(name), qtype)
-	m.SetEdns0(4096, true)
+	m.SetEdns0(1232, true)
 	m.RecursionDesired = false
 
 	if b, err := m.Pack(); err == nil {

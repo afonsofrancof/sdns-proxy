@@ -202,7 +202,7 @@ func (r *MeasurementRunner) performQuery(dnsClient client.DNSClient, domain, ups
 	msg.Id = dns.Id()
 	msg.RecursionDesired = true
 	msg.SetQuestion(dns.Fqdn(domain), qType)
-	msg.SetEdns0(4096, r.config.DNSSEC)
+	msg.SetEdns0(1232, r.config.DNSSEC)
 
 	start := time.Now()
 	metric.Timestamp = start

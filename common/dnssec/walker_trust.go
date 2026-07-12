@@ -24,7 +24,7 @@ func (w *trustWalker) ask(name string, qtype uint16) (*dns.Msg, error) {
 	m.SetQuestion(dns.Fqdn(name), qtype)
 	m.Id = dns.Id()
 	m.RecursionDesired = true
-	m.SetEdns0(4096, true)
+	m.SetEdns0(1232, true)
 
 	if b, err := m.Pack(); err == nil {
 		w.st.BytesSent += len(b)

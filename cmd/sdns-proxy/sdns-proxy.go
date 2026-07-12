@@ -61,7 +61,7 @@ func (q *QueryCmd) Run() error {
 	msg.SetQuestion(dns.Fqdn(q.DomainName), qTypeUint)
 	msg.Id = dns.Id()
 	msg.RecursionDesired = true
-	msg.SetEdns0(4096, q.DNSSEC)
+	msg.SetEdns0(1232, q.DNSSEC)
 
 	logger.Debug("Sending DNS query: ID=%d, Question=%s %s", msg.Id, q.DomainName, q.QueryType)
 	_, recvMsg, err := dnsClient.Query(msg)
